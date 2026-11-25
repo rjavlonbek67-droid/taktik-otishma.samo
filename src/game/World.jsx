@@ -4,11 +4,15 @@ import { Bloom, ChromaticAberration, EffectComposer } from '@react-three/postpro
 import * as THREE from 'three'
 import {
   crashSound,
+  echoSyncSound,
+  echoWarnSound,
   gravitySound,
   impulseSound,
+  loanSound,
   nearMissSound,
   passSound,
   pulseSound,
+  repaySound,
   setDrive,
   stopDrone,
   vibrate,
@@ -130,9 +134,19 @@ function createRuntime() {
     })),
     sparkCursor: 0,
     combo: 0,
+    echoCombo: 0,
     lastMiss: -10,
+    lastEcho: -10,
     glitch: 0,
     ruleLatch: 0,
+    echoes: [],
+    loan: 'idle',
+    loanT: 0,
+    loanCd: 0,
+    loanClean: true,
+    mood: 0.35,
+    strain: 0,
+    rhythm: 1,
   }
 }
 
@@ -166,9 +180,19 @@ function resetRuntime(state) {
   state.rule = 0
   state.dutch = 0
   state.combo = 0
+  state.echoCombo = 0
   state.lastMiss = -10
+  state.lastEcho = -10
   state.glitch = 0
   state.ruleLatch = 0
+  state.echoes.length = 0
+  state.loan = 'idle'
+  state.loanT = 0
+  state.loanCd = 0
+  state.loanClean = true
+  state.mood = 0.35
+  state.strain = 0
+  state.rhythm = 1
   state.gates.length = 0
   state.pulses.length = 0
   state.waves.length = 0
@@ -216,6 +240,41 @@ function burstSparks(state, origin, count) {
 function tripGlitch(state, callbacks) {
   state.glitch = 1
   callbacks.current.onGlitch?.()
+}
+
+function rememberEcho(state) {
+  state.echoes.push({
+    z: state.z + 46,
+    wall: state.targetWall,
+    synced: false,
+  })
+  if (state.echoes.length > 8) state.echoes.shift()
+}
+
+function stepLoan(state, dt, callbacks) {
+  state.loanCd = Math.max(0, state.loanCd - dt)
+  if (state.loan === 'slow') {
+    state.loanT -= dt
+    if (state.loanT <= 0) {
+      state.loan = 'repay'
+      state.loanT = 1.25
+      state.boost = Math.max(state.boost, 0.9)
+      repaySound()
+      callbacks.current.onLoan?.({ phase: 'repay' })
+    }
+  } else if (state.loan === 'repay') {
+    state.loanT -= dt
+    if (state.loanT <= 0) {
+      const paid = state.alive && state.loanClean
+      state.loan = 'idle'
+      state.loanCd = 8
+      if (paid) {
+        state.bonus += 36
+        callbacks.current.onLoan?.({ phase: 'clear', points: 36 })
+      }
+      callbacks.current.onLoan?.({ phase: 'idle' })
+    }
+  }
 }
 
 function spawnGate(state) {
@@ -448,6 +507,7 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
   const speckRef = useRef(null)
   const dimRef = useRef(null)
   const edgeRefs = useRef([])
+  const echoRefs = useRef([])
   const waveRefs = useRef([])
   const sparkRef = useRef(null)
   const chromaFx = useRef(null)
@@ -459,12 +519,13 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
     box: new THREE.Vector3(),
     gravity: new THREE.Vector3(0, -1, 0),
     sample: new THREE.Vector3(),
+    moodColor: new THREE.Color(),
     right: new THREE.Vector3(),
     forward: new THREE.Vector3(0, 0, 1),
     rolled: new THREE.Vector3(),
   })
 
-  const { camera, size } = useThree()
+  const { camera, size, gl } = useThree()
 
   useFrame((_, delta) => {
     const dt = Math.min(0.033, delta)
@@ -518,7 +579,9 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
       if (dimRef.current) dimRef.current.visible = false
       if (label.sprite) label.sprite.visible = false
       for (const mesh of waveRefs.current) if (mesh) mesh.visible = false
+      for (const mesh of echoRefs.current) if (mesh) mesh.visible = false
       if (sparkRef.current) sparkRef.current.visible = false
+      if (tunnelRef.current) tunnelRef.current.scale.set(1, 1, 1)
       state.glitch = 0
       const idleMixTarget = styleRef?.current === 'kontur' ? 1 : 0
       state.mix += (idleMixTarget - state.mix) * Math.min(1, dt * 7)
@@ -538,7 +601,6 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
     state.age += dt
     state.cooldown = Math.max(0, state.cooldown - dt)
     const focusing = Boolean(input.current.focus)
-    const step = dt * (focusing ? 0.34 : 1)
 
     if (input.current.pending && state.cooldown <= 0) {
       const sign = input.current.sign
@@ -563,6 +625,7 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
         state.cooldown = 0.18
       }
       placeBall(state.z, state.angle, state.targetWall, v.pos)
+      rememberEcho(state)
       emitPulse(state, v.pos)
       burstSparks(state, v.pos, Math.abs(sign) >= 2 ? 16 : 10)
       tripGlitch(state, callbacks)
@@ -584,6 +647,20 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
       vibrate(16)
     }
 
+    if (input.current.loan && state.loan === 'idle' && state.loanCd <= 0) {
+      input.current.loan = false
+      state.loan = 'slow'
+      state.loanT = 1.8
+      state.loanClean = true
+      loanSound()
+      callbacks.current.onLoan?.({ phase: 'slow' })
+    } else if (input.current.loan) {
+      input.current.loan = false
+    }
+    stepLoan(state, dt, callbacks)
+    const timeScale = state.loan === 'slow' ? 0.26 : (focusing ? 0.34 : 1)
+    const step = dt * timeScale
+
     if (!state.didIntro && state.age > 0.45) {
       state.didIntro = true
       placeBall(state.z, state.angle, state.targetWall, v.pos)
@@ -599,10 +676,11 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
 
     const cruise = Math.min(29, 13 + state.z * 0.011) * Math.min(1, 0.35 + state.age / 0.7)
     state.boost = Math.max(0, state.boost - dt * 1.4)
-    const speed = cruise * (1 + state.boost * 0.62)
+    let speed = cruise * (1 + state.boost * 0.62)
+    if (state.loan === 'repay') speed *= 1.42
     state.prevZ = state.z
     state.z += speed * step
-    setDrive(speed, focusing)
+    setDrive(speed, state.loan === 'repay' ? false : (focusing || state.loan === 'slow'))
 
     while (state.nextSpawn < state.z + 95) spawnGate(state)
 
@@ -621,6 +699,7 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
     }
 
     if (hit && !state.crashed) {
+      state.loanClean = false
       state.crashed = true
       state.alive = false
       const crashedScore = Math.floor(state.z * 0.45 + state.bonus)
@@ -629,6 +708,37 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
       vibrate(48)
       callbacks.current.onCrash(crashedScore)
       return
+    }
+
+    for (const echo of state.echoes) {
+      if (echo.synced) continue
+      if (!(state.prevZ < echo.z && echo.z <= state.z)) continue
+      echo.synced = true
+      const aligned = echo.wall === state.targetWall
+      const danger = state.slots.some((slot) => (
+        slot.active && slot.wall === echo.wall && Math.abs(slot.z - echo.z) < 3.4
+      ))
+      if (!aligned) continue
+      if (danger) {
+        state.strain = Math.min(1, state.strain + 0.55)
+        state.echoCombo = 0
+        echoWarnSound()
+        tripGlitch(state, callbacks)
+        callbacks.current.onEcho?.({ kind: 'warn' })
+        continue
+      }
+      if (state.time - state.lastEcho > 3.2) state.echoCombo = 0
+      state.echoCombo = Math.min(8, state.echoCombo + 1)
+      state.lastEcho = state.time
+      const points = 24 * state.echoCombo
+      state.bonus += points
+      state.strain *= 0.45
+      placeBall(state.z, state.angle, state.targetWall, v.pos)
+      emitPulse(state, v.pos)
+      pulseSound()
+      echoSyncSound()
+      state.glitch = Math.max(state.glitch, 0.7)
+      callbacks.current.onEcho?.({ kind: 'sync', points, combo: state.echoCombo })
     }
 
     let bestGap = 0.48
@@ -756,6 +866,13 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
       threatY = -Math.cos(wallAngle)
     }
     const drive = THREE.MathUtils.clamp((speed - 13) / 16, 0, 1)
+    const streak = Math.min(1, (state.combo + state.echoCombo) / 8)
+    const moodTarget = THREE.MathUtils.clamp(0.2 + drive * 0.48 + streak * 0.38 - state.strain * 0.42, 0.06, 1)
+    state.mood += (moodTarget - state.mood) * Math.min(1, dt * 1.7)
+    state.strain = Math.max(0, state.strain - dt * 0.07)
+    state.rhythm = 0.55 + drive * 1.35 + streak * 0.7 + (state.loan === 'repay' ? 1 : 0)
+    const mood = { mood: state.mood, rhythm: state.rhythm, strain: state.strain }
+    state.moodPack = mood
     liveCamera(state, dt, focusing, v, {
       drive,
       threat: Math.min(1, threatScore),
@@ -764,7 +881,8 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
       spike: false,
       rule: input.current.rule,
     })
-    const fov = Math.min(98, (size.width < size.height ? 84 : 68) + drive * 14 - (focusing ? 8 : 0) + state.recoil * 3.2)
+    const loanFov = state.loan === 'slow' ? -7 : state.loan === 'repay' ? 5 : 0
+    const fov = Math.min(98, (size.width < size.height ? 84 : 68) + drive * 14 - (focusing ? 8 : 0) + loanFov + state.recoil * 3.2)
     if (Math.abs(camera.fov - fov) > 0.12) {
       camera.fov = fov
       camera.updateProjectionMatrix()
@@ -781,9 +899,16 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
     }
 
     const anchor = Math.floor(state.z / 8) * 8
-    if (tunnelRef.current) tunnelRef.current.position.z = anchor
-    syncTunnel(tunnel.rails, state.pulses, state.z, v.gravity, state.time)
-    syncTunnel(tunnel.rings, state.pulses, state.z, v.gravity, state.time)
+    if (tunnelRef.current) {
+      const width = (1 + state.mood * 0.04 - state.strain * 0.028) * (1 + Math.sin(state.time * (0.7 + state.rhythm)) * 0.012)
+      tunnelRef.current.position.z = anchor
+      tunnelRef.current.scale.set(width, width, 1)
+    }
+    v.moodColor.set(state.strain > state.mood ? 0x12010c : 0x001016)
+    v.moodColor.multiplyScalar(0.35 + state.mood * 0.2)
+    gl.setClearColor(v.moodColor)
+    syncTunnel(tunnel.rails, state.pulses, state.z, v.gravity, state.time, state.moodPack)
+    syncTunnel(tunnel.rings, state.pulses, state.z, v.gravity, state.time, state.moodPack)
 
     if (playerRef.current) {
       playerRef.current.position.copy(v.pos)
@@ -811,10 +936,11 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
     state.mix += (want - state.mix) * Math.min(1, dt * 7)
     const mix = state.mix
     const flash = state.glitch
-    tunnel.rails.uniforms.uGain.value = 1 - mix * 0.7 + flash * 0.85
-    tunnel.rings.uniforms.uGain.value = 1.15 * (1 - mix * 0.7) + flash * 0.7
-    tunnel.railLines.opacity = Math.min(1, mix * 0.92 + flash * 0.9)
-    tunnel.ringLines.opacity = Math.min(1, mix * 0.8 + flash * 0.75)
+    const moodGain = 0.7 + state.mood * 0.6
+    tunnel.rails.uniforms.uGain.value = (1 - mix * 0.7 + flash * 0.85) * moodGain
+    tunnel.rings.uniforms.uGain.value = (1.15 * (1 - mix * 0.7) + flash * 0.7) * moodGain
+    tunnel.railLines.opacity = Math.min(1, (mix * 0.92 + flash * 0.9) * moodGain + (1 - mix) * state.mood * 0.28)
+    tunnel.ringLines.opacity = Math.min(1, (mix * 0.8 + flash * 0.75) * moodGain + (1 - mix) * state.mood * 0.2)
     if (shellMat.current) {
       shellMat.current.opacity = 1 - mix * 0.78
       shellMat.current.depthWrite = mix < 0.8
@@ -964,6 +1090,26 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
     sparkGeo.attributes.position.needsUpdate = true
     if (sparkRef.current) sparkRef.current.visible = sparkCount > 0
 
+    let echoShown = 0
+    for (const echo of state.echoes) {
+      const ahead = echo.z - state.z
+      if (echo.synced || ahead < -2 || ahead > 36) continue
+      const mesh = echoRefs.current[echoShown]
+      echoShown += 1
+      if (!mesh) continue
+      const danger = state.slots.some((slot) => (
+        slot.active && slot.wall === echo.wall && Math.abs(slot.z - echo.z) < 3.4
+      ))
+      placeBall(echo.z, echo.wall * Math.PI * 0.5, echo.wall, v.sample)
+      mesh.visible = true
+      mesh.position.copy(v.sample)
+      mesh.material.color.set(danger ? '#ff4d6a' : '#d9fff6')
+      mesh.material.opacity = 0.28 + (1 - Math.min(ahead, 36) / 36) * 0.5
+    }
+    for (let i = echoShown; i < echoRefs.current.length; i += 1) {
+      if (echoRefs.current[i]) echoRefs.current[i].visible = false
+    }
+
     for (let i = 0; i < waveRefs.current.length; i += 1) {
       const mesh = waveRefs.current[i]
       const wave = state.waves[state.waves.length - 1 - i]
@@ -1103,6 +1249,21 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
         </mesh>
       ))}
 
+      {Array.from({ length: 6 }, (_, i) => (
+        <mesh key={`echo-${i}`} ref={(node) => { echoRefs.current[i] = node }} visible={false}>
+          <ringGeometry args={[0.22, 0.28, 20]} />
+          <meshBasicMaterial
+            color="#d9fff6"
+            transparent
+            opacity={0.45}
+            blending={THREE.AdditiveBlending}
+            depthWrite={false}
+            toneMapped={false}
+            side={THREE.DoubleSide}
+          />
+        </mesh>
+      ))}
+
       {Array.from({ length: 3 }, (_, i) => (
         <mesh key={`wave-${i}`} ref={(node) => { waveRefs.current[i] = node }} visible={false}>
           <torusGeometry args={[1.9, 0.03, 6, 40]} />
@@ -1188,12 +1349,14 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
   )
 }
 
-function WorldCanvas({ active, runId, input, styleRef, onScore, onCrash, onNearMiss, onGlitch }) {
-  const callbacks = useRef({ onScore, onCrash, onNearMiss, onGlitch })
+function WorldCanvas({ active, runId, input, styleRef, onScore, onCrash, onNearMiss, onGlitch, onEcho, onLoan }) {
+  const callbacks = useRef({ onScore, onCrash, onNearMiss, onGlitch, onEcho, onLoan })
   callbacks.current.onScore = onScore
   callbacks.current.onCrash = onCrash
   callbacks.current.onNearMiss = onNearMiss
   callbacks.current.onGlitch = onGlitch
+  callbacks.current.onEcho = onEcho
+  callbacks.current.onLoan = onLoan
 
   return (
     <Canvas

@@ -297,6 +297,77 @@ export function impulseSound(speed) {
   noiseHit(0.16, 500 + drive * 400, 0.5, 0.06 + drive * 0.05)
 }
 
+export function echoSyncSound() {
+  unlock()
+  burst({
+    type: 'sine',
+    from: 520,
+    to: 1480,
+    dur: 0.16,
+    peak: 0.09,
+    filterFreq: 2400,
+    filterTo: 900,
+  })
+  burst({
+    type: 'triangle',
+    from: 880,
+    to: 1760,
+    dur: 0.12,
+    peak: 0.05,
+    filterFreq: 2800,
+    filterType: 'highpass',
+  })
+}
+
+export function echoWarnSound() {
+  unlock()
+  burst({
+    type: 'square',
+    from: 240,
+    to: 70,
+    dur: 0.14,
+    peak: 0.08,
+    filterFreq: 900,
+    filterTo: 180,
+  })
+  noiseHit(0.1, 320, 0.7, 0.06)
+}
+
+export function loanSound() {
+  unlock()
+  burst({
+    type: 'sine',
+    from: 320,
+    to: 90,
+    dur: 0.28,
+    peak: 0.08,
+    filterFreq: 700,
+    filterTo: 140,
+  })
+}
+
+export function repaySound() {
+  unlock()
+  burst({
+    type: 'sawtooth',
+    from: 70,
+    to: 220,
+    dur: 0.2,
+    peak: 0.1,
+    filterFreq: 400,
+    filterTo: 1400,
+  })
+  burst({
+    type: 'triangle',
+    from: 180,
+    to: 540,
+    dur: 0.16,
+    peak: 0.05,
+    filterFreq: 1600,
+    filterTo: 500,
+  })
+}
+
 export function crashSound() {
   unlock()
   burst({

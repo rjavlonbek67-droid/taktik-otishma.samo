@@ -17,6 +17,9 @@ export default function App() {
   const [miss, setMiss] = useState(null)
   const [muted, setMutedUi] = useState(false)
   const [glitch, setGlitch] = useState(null)
+  const [note, setNote] = useState(null)
+  const [loanPhase, setLoanPhase] = useState('idle')
+  const [loanLeft, setLoanLeft] = useState(0)
   const phaseRef = useRef(phase)
   const styleRef = useRef(style)
   const input = useRef({
@@ -27,12 +30,15 @@ export default function App() {
     impulse: false,
     rule: 0,
     glitch: 0,
+    loan: false,
   })
+  const pointers = useRef(new Set())
   const gesture = useRef(null)
   const holdTimer = useRef(0)
   const crashTimer = useRef(0)
   const missTimer = useRef(0)
   const glitchTimer = useRef(0)
+  const noteTimer = useRef(0)
 
   phaseRef.current = phase
   styleRef.current = style
@@ -66,6 +72,10 @@ export default function App() {
     startDrone()
     input.current.pending = false
     input.current.impulse = false
+    input.current.loan = false
+    setLoanPhase('idle')
+    setLoanLeft(0)
+    setNote(null)
     setScore(0)
     setMiss(null)
     setRunId((value) => value + 1)
@@ -85,6 +95,38 @@ export default function App() {
     setMiss({ id, ...hit })
     window.clearTimeout(missTimer.current)
     missTimer.current = window.setTimeout(() => setMiss(null), 720)
+  }, [])
+
+  const showNote = useCallback((text, ms = 900) => {
+    const id = performance.now()
+    setNote({ id, text })
+    window.clearTimeout(noteTimer.current)
+    noteTimer.current = window.setTimeout(() => setNote(null), ms)
+  }, [])
+
+  const onEcho = useCallback((hit) => {
+    if (hit.kind === 'sync') showNote(`ECHO SYNC +${hit.points}`, 800)
+    else showNote('XAVFLI IZ', 700)
+  }, [showNote])
+
+  const onLoan = useCallback((info) => {
+    if (info.phase === 'slow') {
+      setLoanPhase('slow')
+      showNote('VAQT QARZI', 1600)
+    } else if (info.phase === 'repay') {
+      setLoanPhase('repay')
+      showNote('QARZ QAYTARILMOQDA', 1200)
+    } else if (info.phase === 'clear') {
+      showNote(`QARZ YOPILDI +${info.points}`, 900)
+    } else {
+      setLoanPhase('idle')
+      setLoanLeft(8)
+    }
+  }, [showNote])
+
+  const requestLoan = useCallback(() => {
+    if (phaseRef.current !== 'play') return
+    input.current.loan = true
   }, [])
 
   const onGlitch = useCallback(() => {
@@ -114,7 +156,16 @@ export default function App() {
     window.clearTimeout(holdTimer.current)
     window.clearTimeout(missTimer.current)
     window.clearTimeout(glitchTimer.current)
+    window.clearTimeout(noteTimer.current)
   }, [])
+
+  useEffect(() => {
+    if (loanLeft <= 0) return undefined
+    const id = window.setInterval(() => {
+      setLoanLeft((value) => (value <= 0.1 ? 0 : value - 0.1))
+    }, 100)
+    return () => window.clearInterval(id)
+  }, [loanLeft > 0])
 
   useEffect(() => {
     const block = (event) => {
@@ -144,6 +195,15 @@ export default function App() {
 
   const onPointerDown = (event) => {
     if (event.target.closest('button')) return
+    pointers.current.add(event.pointerId)
+    if (phaseRef.current === 'play' && pointers.current.size >= 2) {
+      window.clearTimeout(holdTimer.current)
+      gesture.current = null
+      input.current.focus = false
+      setFocusUi(false)
+      requestLoan()
+      return
+    }
     if (phaseRef.current !== 'play') return
     gesture.current = {
       x: event.clientX,
@@ -181,10 +241,12 @@ export default function App() {
     queueFlip(horizontal ? (dx > 0 ? 1 : -1) : (dy > 0 ? 2 : -2), true)
   }
 
-  const onPointerUp = () => {
+  const onPointerUp = (event) => {
+    pointers.current.delete(event.pointerId)
     window.clearTimeout(holdTimer.current)
     const current = gesture.current
     gesture.current = null
+    if (pointers.current.size > 0) return
     if (!current || phaseRef.current !== 'play') return
     if (current.held) {
       input.current.focus = false
@@ -197,7 +259,7 @@ export default function App() {
 
   return (
     <div
-      className={`${phase === 'play' ? 'app is-play' : 'app'}${focusUi ? ' is-focus' : ''}`}
+      className={`${phase === 'play' ? 'app is-play' : 'app'}${focusUi ? ' is-focus' : ''}${loanPhase === 'slow' ? ' is-loan' : ''}${loanPhase === 'repay' ? ' is-repay' : ''}`}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
@@ -213,6 +275,8 @@ export default function App() {
         onCrash={onCrash}
         onNearMiss={onNearMiss}
         onGlitch={onGlitch}
+        onEcho={onEcho}
+        onLoan={onLoan}
       />
 
       <button
@@ -239,7 +303,24 @@ export default function App() {
           <b>{miss.combo > 1 ? `COMBO x${miss.combo}` : `x${miss.mult}`}</b>
         </div>
       )}
+      {note && (
+        <div key={note.id} className={loanPhase === 'repay' ? 'note is-hot' : 'note'}>
+          {note.text}
+        </div>
+      )}
       {glitch && <div key={glitch.id} className="glitch-fx" />}
+      {phase === 'play' && (
+        <button
+          className={loanLeft > 0 || loanPhase !== 'idle' ? 'loan is-wait' : 'loan'}
+          type="button"
+          onPointerDown={(event) => {
+            event.stopPropagation()
+            requestLoan()
+          }}
+        >
+          {loanLeft > 0 ? loanLeft.toFixed(0) : 'QARZ'}
+        </button>
+      )}
       {phase === 'dead' && <div className="flash" />}
 
       <div className="build">{LABEL}</div>

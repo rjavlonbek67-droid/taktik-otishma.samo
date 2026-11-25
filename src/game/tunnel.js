@@ -26,6 +26,9 @@ uniform float uPlayerZ;
 uniform vec3 uGravity;
 uniform float uTime;
 uniform float uGain;
+uniform float uMood;
+uniform float uRhythm;
+uniform float uStrain;
 out vec4 fragColor;
 
 float ring(vec3 origin, float radius, float amt) {
@@ -43,9 +46,10 @@ void main() {
   }
   float glow = ring(uPulsePos, uPulseRadius, uPulseAmt)
     + ring(uPulsePos2, uPulseRadius2, uPulseAmt2);
-  float scan = 0.05 * sin(vWorld.z * 0.42 - uTime * 2.4);
-  float intensity = (0.2 + floorBoost * 0.72 + glow * 3.1 + scan) * fade;
+  float scan = 0.05 * sin(vWorld.z * (0.34 + uRhythm * 0.35) - uTime * (1.6 + uRhythm * 2.2));
+  float intensity = (0.16 + uMood * 0.34 + floorBoost * 0.72 + glow * 3.1 + scan) * fade;
   vec3 col = uColor * intensity * uGain;
+  col = mix(col, col * vec3(1.0, 0.42, 0.58), clamp(uStrain, 0.0, 1.0) * 0.85);
   col += vec3(0.55, 0.2, 1.0) * glow * fade;
   fragColor = vec4(col, 1.0);
 }
@@ -67,6 +71,9 @@ export function createTunnelMaterial(color, gain) {
       uGravity: { value: new THREE.Vector3(0, -1, 0) },
       uTime: { value: 0 },
       uGain: { value: gain },
+      uMood: { value: 0.35 },
+      uRhythm: { value: 1 },
+      uStrain: { value: 0 },
     },
     vertexShader,
     fragmentShader,
@@ -118,7 +125,7 @@ export function buildTunnelGeometry() {
   return { railGeo, ringGeo }
 }
 
-export function syncTunnel(material, pulses, playerZ, gravity, time) {
+export function syncTunnel(material, pulses, playerZ, gravity, time, mood = {}) {
   const uniforms = material.uniforms
   const newest = pulses[pulses.length - 1]
   const previous = pulses[pulses.length - 2]
@@ -139,4 +146,7 @@ export function syncTunnel(material, pulses, playerZ, gravity, time) {
   uniforms.uPlayerZ.value = playerZ
   uniforms.uGravity.value.copy(gravity)
   uniforms.uTime.value = time
+  uniforms.uMood.value = mood.mood ?? 0.35
+  uniforms.uRhythm.value = mood.rhythm ?? 1
+  uniforms.uStrain.value = mood.strain ?? 0
 }
