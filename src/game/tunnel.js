@@ -29,6 +29,9 @@ uniform float uGain;
 uniform float uMood;
 uniform float uRhythm;
 uniform float uStrain;
+uniform float uBlindZ;
+uniform float uBlindLen;
+uniform float uBlindAmt;
 out vec4 fragColor;
 
 float ring(vec3 origin, float radius, float amt) {
@@ -48,6 +51,8 @@ void main() {
     + ring(uPulsePos2, uPulseRadius2, uPulseAmt2);
   float scan = 0.05 * sin(vWorld.z * (0.34 + uRhythm * 0.35) - uTime * (1.6 + uRhythm * 2.2));
   float intensity = (0.16 + uMood * 0.34 + floorBoost * 0.72 + glow * 3.1 + scan) * fade;
+  float swallow = (1.0 - smoothstep(0.0, max(uBlindLen, 0.001), abs(vWorld.z - uBlindZ))) * uBlindAmt;
+  intensity *= 1.0 - swallow * 0.9;
   vec3 col = uColor * intensity * uGain;
   col = mix(col, col * vec3(1.0, 0.42, 0.58), clamp(uStrain, 0.0, 1.0) * 0.85);
   col += vec3(0.55, 0.2, 1.0) * glow * fade;
@@ -74,6 +79,9 @@ export function createTunnelMaterial(color, gain) {
       uMood: { value: 0.35 },
       uRhythm: { value: 1 },
       uStrain: { value: 0 },
+      uBlindZ: { value: 0 },
+      uBlindLen: { value: 6 },
+      uBlindAmt: { value: 0 },
     },
     vertexShader,
     fragmentShader,
@@ -149,4 +157,7 @@ export function syncTunnel(material, pulses, playerZ, gravity, time, mood = {}) 
   uniforms.uMood.value = mood.mood ?? 0.35
   uniforms.uRhythm.value = mood.rhythm ?? 1
   uniforms.uStrain.value = mood.strain ?? 0
+  uniforms.uBlindZ.value = mood.blindZ ?? 0
+  uniforms.uBlindLen.value = mood.blindLen ?? 6
+  uniforms.uBlindAmt.value = mood.blindAmt ?? 0
 }

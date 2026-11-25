@@ -418,6 +418,48 @@ export function rewindSound() {
   noiseHit(0.4, 180, 0.5, 0.05)
 }
 
+export function decoySound() {
+  unlock()
+  wetTone({ type: 'sine', from: 920, to: 360, dur: 0.2, peak: 0.045 })
+  burst({
+    type: 'triangle',
+    from: 700,
+    to: 210,
+    dur: 0.16,
+    peak: 0.035,
+    filterFreq: 2200,
+    filterTo: 380,
+  })
+}
+
+export function surgeSound() {
+  unlock()
+  burst({
+    type: 'sawtooth',
+    from: 48,
+    to: 190,
+    dur: 0.36,
+    peak: 0.13,
+    filterFreq: 180,
+    filterTo: 1700,
+  })
+  wetTone({ type: 'square', from: 64, to: 260, dur: 0.42, peak: 0.05 })
+}
+
+export function surgeClearSound() {
+  unlock()
+  wetTone({ type: 'sine', from: 280, to: 1560, dur: 0.26, peak: 0.09 })
+  burst({
+    type: 'triangle',
+    from: 440,
+    to: 1320,
+    dur: 0.14,
+    peak: 0.05,
+    filterFreq: 2400,
+    filterTo: 600,
+  })
+}
+
 export function heartSound() {
   unlock()
   burst({

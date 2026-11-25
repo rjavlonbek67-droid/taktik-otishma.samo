@@ -6,6 +6,7 @@ import {
   crashSound,
   debtClearSound,
   debtStrikeSound,
+  decoySound,
   echoSyncSound,
   echoWarnSound,
   gravitySound,
@@ -19,6 +20,8 @@ import {
   rewindSound,
   setDrive,
   stopDrone,
+  surgeClearSound,
+  surgeSound,
   vibrate,
 } from '../audio.js'
 import { COLORS, PLAYER_R, POOL, STICK, WALL } from './constants.js'
@@ -167,6 +170,19 @@ function createRuntime() {
     fakeWarn: 'SOKIN',
     scanTime: 0,
     witness: { on: false, wall: 0, z: 0, life: 0, cd: 3.5 },
+    blind: { on: false, z: 0, len: 7, cd: 7 },
+    decoys: [
+      { on: false, z: 0, wall: 0, held: true },
+      { on: false, z: 0, wall: 0, held: true },
+    ],
+    decoyCd: 4,
+    decoyCombo: 0,
+    lastDecoy: -10,
+    surge: 0,
+    surgeCd: 11,
+    surgeClean: true,
+    surgePulse: 0,
+    surgeEvent: null,
   }
 }
 
@@ -227,6 +243,17 @@ function resetRuntime(state) {
   state.witness.on = false
   state.witness.life = 0
   state.witness.cd = 3.5
+  state.blind.on = false
+  state.blind.cd = 7
+  state.decoyCd = 4
+  state.decoyCombo = 0
+  state.lastDecoy = -10
+  state.surge = 0
+  state.surgeCd = 11
+  state.surgeClean = true
+  state.surgePulse = 0
+  state.surgeEvent = null
+  for (const decoy of state.decoys) decoy.on = false
   state.gates.length = 0
   state.pulses.length = 0
   state.waves.length = 0
@@ -253,6 +280,7 @@ function emitPulse(state, origin) {
   state.waves.push({ id: state.wid, z: origin.z, life: 0 })
   state.wid += 1
   if (state.waves.length > 3) state.waves.shift()
+  maybeDecoy(state)
 }
 
 function burstSparks(state, origin, count) {
@@ -356,6 +384,7 @@ function dreadAhead(state, v, reach) {
 }
 
 function stepDread(state, dt, callbacks, v, cruise) {
+  stepSurge(state, dt, callbacks)
   state.rewindCd = Math.max(0, state.rewindCd - dt)
   state.heartCd = Math.max(0, state.heartCd - dt)
   state.heartFlash = Math.max(0, state.heartFlash - dt)
@@ -371,6 +400,7 @@ function stepDread(state, dt, callbacks, v, cruise) {
     state.rewindCd <= 0
     && state.heart <= 0
     && state.loan !== 'repay'
+    && state.surge <= 0
     && state.age > 6
     && dreadAhead(state, v, 7.2)
   ) {
@@ -402,6 +432,7 @@ function stepDread(state, dt, callbacks, v, cruise) {
   } else if (
     state.heartCd <= 0
     && state.rewind <= 0
+    && state.surge <= 0
     && state.loan === 'idle'
     && state.age > 8
   ) {
@@ -424,6 +455,77 @@ function stepDread(state, dt, callbacks, v, cruise) {
     state.fakeWarn = Math.random() > 0.5 ? 'CHAP TOZA' : 'ONG XAVF'
   }
   return cruise * speedSign
+}
+
+function maybeDecoy(state) {
+  if (state.decoyCd > 0 || state.age < 5 || state.heart > 0 || state.rewind > 0) return
+  if (Math.random() > 0.38) return
+  const decoy = state.decoys.find((item) => !item.on)
+  if (!decoy) return
+  const z = state.z + 15 + Math.random() * 12
+  const wall = state.targetWall
+  const crowded = state.slots.some((slot) => (
+    slot.active && slot.wall === wall && Math.abs(slot.z - z) < 3.2
+  ))
+  if (crowded) return
+  decoy.on = true
+  decoy.z = z
+  decoy.wall = wall
+  decoy.held = true
+  state.decoyCd = 8
+  decoySound()
+}
+
+function stepSurge(state, dt, callbacks) {
+  state.surgeCd = Math.max(0, state.surgeCd - dt)
+  state.decoyCd = Math.max(0, state.decoyCd - dt)
+  state.blind.cd = Math.max(0, state.blind.cd - dt)
+  if (state.blind.on && state.z > state.blind.z + state.blind.len + 6) {
+    state.blind.on = false
+    state.blind.cd = 12
+  } else if (!state.blind.on && state.blind.cd <= 0 && state.age > 5 && state.rewind <= 0) {
+    state.blind.on = true
+    state.blind.z = state.z + 24 + Math.random() * 10
+    state.blind.len = 6.4 + Math.random() * 2.2
+    state.blind.cd = 14
+    callbacks.current.onDread?.({ phase: 'blind' })
+  }
+  if (state.surge > 0) {
+    state.surge -= dt
+    state.glitch = Math.max(state.glitch, 0.18)
+    if (state.surge <= 0) {
+      state.surge = 0
+      state.surgeCd = 17 + Math.random() * 6
+      if (state.alive && state.surgeClean) {
+        const points = 84 + state.combo * 12 + state.decoyCombo * 8
+        state.bonus += points
+        state.loanCd = Math.max(0, state.loanCd - 4.5)
+        state.rewindCd = Math.max(0, state.rewindCd - 5)
+        state.heartCd = Math.max(0, state.heartCd - 4)
+        state.witness.cd = Math.max(0, state.witness.cd - 2.5)
+        state.decoyCd = Math.max(0, state.decoyCd - 2)
+        state.surgeEvent = 'clear'
+        callbacks.current.onDread?.({ phase: 'surge-clear', points })
+        surgeClearSound()
+      } else if (state.alive) {
+        callbacks.current.onDread?.({ phase: 'surge-fail' })
+      }
+    }
+  } else if (
+    state.surgeCd <= 0
+    && state.age > 9
+    && state.rewind <= 0
+    && state.heart <= 0
+    && state.loan === 'idle'
+  ) {
+    state.surge = 3.6
+    state.surgeClean = true
+    state.surgePulse = 1
+    state.dutch = Math.max(state.dutch, 0.72)
+    state.suspicion = Math.max(state.suspicion, 0.9)
+    surgeSound()
+    callbacks.current.onDread?.({ phase: 'surge' })
+  }
 }
 
 function witnessFigure() {
@@ -600,7 +702,8 @@ function liveCamera(state, dt, focusing, v, signals) {
   const debt = state.loan === 'repay' ? 1 : state.loan === 'slow' ? 0.62 : 0
   if (state.loan === 'slow') state.suspicion = Math.max(state.suspicion, 0.84)
   if (state.loan === 'repay') state.suspicion = Math.max(state.suspicion, 0.96)
-  const swayTarget = (focusing || state.loan === 'slow') ? 0 : (state.loan === 'repay' ? 0.4 : 1)
+  if (state.surge > 0) state.suspicion = Math.max(state.suspicion, 0.92)
+  const swayTarget = (focusing || state.loan === 'slow') ? 0 : (state.loan === 'repay' ? 0.4 : (state.surge > 0 ? 0.22 : 1))
   state.sway += (swayTarget - state.sway) * Math.min(1, dt * (focusing || debt ? 14 : 2.6))
   state.breath += dt * (0.82 + signals.drive * 0.4) * (0.12 + state.sway * 0.88)
 
@@ -627,6 +730,7 @@ function liveCamera(state, dt, focusing, v, signals) {
   if (state.loan === 'slow') v.cam.z += 1.5
   if (state.loan === 'repay') v.cam.z -= 0.95
   if (state.rewind > 0) v.cam.z += 0.7
+  if (state.surge > 0) v.cam.z -= 0.55
   v.look.addScaledVector(v.right, peek * 0.24 * state.peekSide + eye * 1.35)
   v.look.addScaledVector(v.up, Math.cos(state.breath * 0.53) * 0.02 * state.sway)
   v.look.x += state.threatX * lean
@@ -749,6 +853,9 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
   const echoRefs = useRef([])
   const waveRefs = useRef([])
   const sparkRef = useRef(null)
+  const decoyRefs = useRef([])
+  const blindNear = useRef(null)
+  const blindFar = useRef(null)
   const witnessRef = useRef(null)
   const shadowRef = useRef(null)
   const keyLight = useRef(null)
@@ -825,6 +932,9 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
       for (const mesh of waveRefs.current) if (mesh) mesh.visible = false
       for (const mesh of echoRefs.current) if (mesh) mesh.visible = false
       if (sparkRef.current) sparkRef.current.visible = false
+      for (const mesh of decoyRefs.current) if (mesh) mesh.visible = false
+      if (blindNear.current) blindNear.current.visible = false
+      if (blindFar.current) blindFar.current.visible = false
       if (witnessRef.current) witnessRef.current.visible = false
       if (shadowRef.current) shadowRef.current.visible = false
       if (keyLight.current) keyLight.current.intensity = 10
@@ -856,7 +966,11 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
       const immediate = input.current.immediate
       input.current.pending = false
       input.current.immediate = false
-      state.targetWall = (state.targetWall + sign + 8) % 4
+      const nextWall = (state.targetWall + sign + 8) % 4
+      for (const decoy of state.decoys) {
+        if (decoy.on && decoy.wall === state.targetWall && nextWall !== decoy.wall) decoy.held = false
+      }
+      state.targetWall = nextWall
       state.dwell = 0
       state.armedPeek = 0
       state.peekKick = -state.suspicion * state.peekSide
@@ -931,6 +1045,7 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
     const signed = stepDread(state, dt, callbacks, v, cruise)
     let speed = Math.abs(signed) * (1 + state.boost * 0.62)
     if (state.loan === 'repay') speed *= 1.72
+    if (state.surge > 0) speed *= 1.36
     if (signed < 0) speed = -Math.abs(cruise) * 0.58
     state.prevZ = state.z
     const motion = state.rewind > 0 ? dt : step
@@ -945,6 +1060,17 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
 
     placeBall(state.z, state.angle, state.targetWall, v.pos)
     playLoanEvent(state, callbacks, v.pos)
+    if (state.surgePulse) {
+      state.surgePulse = 0
+      emitPulse(state, v.pos)
+      burstSparks(state, v.pos, 14)
+      tripGlitch(state, callbacks)
+    }
+    if (state.surgeEvent === 'clear') {
+      emitPulse(state, v.pos)
+      burstSparks(state, v.pos, 10)
+      state.surgeEvent = null
+    }
     let hit = false
     const sweepLo = Math.min(state.prevZ, state.z)
     const sweepHi = Math.max(state.prevZ, state.z)
@@ -962,6 +1088,7 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
 
     if (hit && !state.crashed) {
       state.loanClean = false
+      state.surgeClean = false
       state.crashed = true
       state.alive = false
       const crashedScore = Math.floor(state.z * 0.45 + state.bonus)
@@ -989,6 +1116,7 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
       if (danger) {
         state.strain = Math.min(1, state.strain + 0.55)
         state.echoCombo = 0
+        state.surgeClean = false
         state.recoil = 1
         echoWarnSound()
         tripGlitch(state, callbacks)
@@ -1014,6 +1142,31 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
       echoSyncSound()
       state.glitch = Math.max(state.glitch, 0.7)
       callbacks.current.onEcho?.({ kind: 'sync', points, combo: state.echoCombo })
+    }
+
+    if (state.rewind <= 0) {
+      for (const decoy of state.decoys) {
+        if (!decoy.on) continue
+        if (!(state.prevZ < decoy.z && decoy.z <= state.z)) continue
+        decoy.on = false
+        const clean = decoy.held && state.targetWall === decoy.wall
+        if (clean) {
+          if (state.time - state.lastDecoy > 4) state.decoyCombo = 0
+          state.decoyCombo = Math.min(8, state.decoyCombo + 1)
+          state.lastDecoy = state.time
+          const points = 26 * state.decoyCombo
+          state.bonus += points
+          state.glitch = Math.max(state.glitch, 0.45)
+          burstSparks(state, v.pos, 8)
+          callbacks.current.onDread?.({ phase: 'decoy', points, combo: state.decoyCombo })
+        } else {
+          state.decoyCombo = 0
+          state.surgeClean = false
+          state.strain = Math.min(1, state.strain + 0.28)
+          tripGlitch(state, callbacks)
+          callbacks.current.onDread?.({ phase: 'decoy-fool' })
+        }
+      }
     }
 
     let bestGap = 0.48
@@ -1108,7 +1261,8 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
           slot.lastPulse = pulse.id
         }
       }
-      slot.glow = Math.max(0, slot.glow - step / 3.4)
+      const inBlind = state.blind.on && Math.abs(slot.z - state.blind.z) < state.blind.len
+      slot.glow = Math.max(0, slot.glow - step / (inBlind ? 0.7 : 3.4))
       slot.flash = Math.max(0, slot.flash - dt / 0.18)
       for (const wave of state.waves) {
         if (slot.lastWave === wave.id) continue
@@ -1157,8 +1311,15 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
     const moodTarget = THREE.MathUtils.clamp(0.2 + drive * 0.48 + streak * 0.38 - state.strain * 0.42, 0.06, 1)
     state.mood += (moodTarget - state.mood) * Math.min(1, dt * 1.7)
     state.strain = Math.max(0, state.strain - dt * 0.07)
-    state.rhythm = 0.55 + drive * 1.35 + streak * 0.7 + (state.loan === 'repay' ? 1 : 0)
-    const mood = { mood: state.mood, rhythm: state.rhythm, strain: state.strain }
+    state.rhythm = 0.55 + drive * 1.35 + streak * 0.7 + (state.loan === 'repay' ? 1 : 0) + (state.surge > 0 ? 0.95 : 0)
+    const mood = {
+      mood: state.mood,
+      rhythm: state.rhythm,
+      strain: state.strain,
+      blindZ: state.blind.z,
+      blindLen: state.blind.len,
+      blindAmt: state.blind.on ? 0.86 : 0,
+    }
     state.moodPack = mood
     liveCamera(state, dt, focusing, v, {
       drive,
@@ -1170,7 +1331,8 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
     })
     const loanFov = state.loan === 'slow' ? -11 : state.loan === 'repay' ? 10 : 0
     const heartFov = state.heart > 0 ? (state.heartFlash > 0.02 ? 6 : -8) : 0
-    const fov = Math.min(98, (size.width < size.height ? 84 : 68) + drive * 14 - (focusing ? 8 : 0) + loanFov + heartFov + state.recoil * 3.2)
+    const surgeFov = state.surge > 0 ? 7 : 0
+    const fov = Math.min(98, (size.width < size.height ? 84 : 68) + drive * 14 - (focusing ? 8 : 0) + loanFov + heartFov + surgeFov + state.recoil * 3.2)
     if (Math.abs(camera.fov - fov) > 0.12) {
       camera.fov = fov
       camera.updateProjectionMatrix()
@@ -1249,6 +1411,14 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
       tunnel.railLines.opacity = Math.max(tunnel.railLines.opacity, 0.78)
       tunnel.ringLines.opacity = Math.max(tunnel.ringLines.opacity, 0.62)
     }
+    if (state.surge > 0) {
+      tunnel.rails.uniforms.uGain.value *= 1.2
+      tunnel.rings.uniforms.uGain.value *= 1.15
+    }
+    if (state.blind.on && Math.abs(state.z - state.blind.z) < state.blind.len + 0.6) {
+      tunnel.railLines.opacity *= 0.38
+      tunnel.ringLines.opacity *= 0.38
+    }
     if (shellMat.current) {
       shellMat.current.opacity = 1 - mix * 0.78
       shellMat.current.depthWrite = mix < 0.8
@@ -1281,6 +1451,14 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
       const fade = 1 - THREE.MathUtils.smoothstep(ahead, 26, 78)
       const glow = slot.glow * fade
       const close = ahead < 16 && ahead > -0.8
+      const inBlind = state.blind.on && Math.abs(slot.z - state.blind.z) < state.blind.len
+      const shadowNear = ahead < 2.55 && ahead > -1.1
+      const sonarLit = glow > 0.2 || slot.flash > 0.04
+      if (inBlind && !sonarLit && !shadowNear) {
+        mesh.visible = false
+        if (edge) edge.visible = false
+        continue
+      }
       const showEdge = mix > 0.08 || close || glow > 0.15 || slot.flash > 0.04
       const showFill = glow > 0.03
       mesh.visible = showFill || showEdge
@@ -1302,9 +1480,35 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
         edge.material.color.set(slot.flash > 0.04 ? '#fff1a8' : hot ? '#ff4d6a' : '#d9fbff')
         edge.material.opacity = Math.min(1, (hot ? 0.96 : 0.16 + mix * 0.62) + slot.flash)
       }
-      if (close && ahead < nearestAhead) {
+      if (close && ahead < nearestAhead && !inBlind) {
         nearestAhead = ahead
         nearest = slot
+      }
+    }
+
+    for (let i = 0; i < state.decoys.length; i += 1) {
+      const mesh = decoyRefs.current[i]
+      const decoy = state.decoys[i]
+      if (!mesh) continue
+      const ahead = decoy.on ? decoy.z - state.z : 99
+      if (!decoy.on || ahead < -3 || ahead > 72) {
+        mesh.visible = false
+        continue
+      }
+      boxCenter(decoy.wall, decoy.z, v.box)
+      mesh.visible = true
+      mesh.position.copy(v.box)
+      if (decoy.wall % 2 === 0) mesh.scale.set(1.62, 0.46, 1.2)
+      else mesh.scale.set(0.46, 1.62, 1.2)
+      mesh.material.opacity = 0.22 + Math.abs(Math.sin(state.time * 16 + i)) * 0.5
+    }
+    if (blindNear.current && blindFar.current) {
+      const showBlind = state.blind.on
+      blindNear.current.visible = showBlind
+      blindFar.current.visible = showBlind
+      if (showBlind) {
+        blindNear.current.position.set(0, 0, state.blind.z - state.blind.len)
+        blindFar.current.position.set(0, 0, state.blind.z + state.blind.len)
       }
     }
 
@@ -1618,6 +1822,26 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
           sizeAttenuation
         />
       </points>
+
+      {Array.from({ length: 2 }, (_, i) => (
+        <lineSegments
+          key={`decoy-${i}`}
+          ref={(node) => { decoyRefs.current[i] = node }}
+          geometry={boxEdges}
+          visible={false}
+          frustumCulled={false}
+        >
+          <lineBasicMaterial color="#9af6ff" transparent opacity={0.45} toneMapped={false} depthWrite={false} />
+        </lineSegments>
+      ))}
+      <mesh ref={blindNear} visible={false} frustumCulled={false}>
+        <torusGeometry args={[2.02, 0.03, 6, 28]} />
+        <meshBasicMaterial color="#ff2a4a" transparent opacity={0.22} depthWrite={false} toneMapped={false} />
+      </mesh>
+      <mesh ref={blindFar} visible={false} frustumCulled={false}>
+        <torusGeometry args={[2.02, 0.03, 6, 28]} />
+        <meshBasicMaterial color="#3d7eff" transparent opacity={0.16} depthWrite={false} toneMapped={false} />
+      </mesh>
 
       <group ref={witnessRef} visible={false}>
         <lineSegments geometry={witnessGeo.lines} frustumCulled={false}>

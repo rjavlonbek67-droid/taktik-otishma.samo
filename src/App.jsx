@@ -153,8 +153,23 @@ export default function App() {
       flashUltra('debt', 'QORONG‘U', 'YURAK', 900)
     } else if (info.phase === 'heart-end') {
       setDread((current) => (current === 'heart' ? null : current))
+    } else if (info.phase === 'decoy') {
+      showNote(`ANIQ +${info.points}`, 800)
+    } else if (info.phase === 'decoy-fool') {
+      showNote('SOXTA AKS', 700)
+    } else if (info.phase === 'blind') {
+      showNote("O'LIK NUQTA", 800)
+    } else if (info.phase === 'surge') {
+      setDread('surge')
+      flashUltra('peak', 'QALTIS', 'SURGE', 1100)
+    } else if (info.phase === 'surge-clear') {
+      setDread((current) => (current === 'surge' ? null : current))
+      flashUltra('win', 'SURGE', `+${info.points}`, 1000)
+    } else if (info.phase === 'surge-fail') {
+      setDread((current) => (current === 'surge' ? null : current))
+      flashUltra('hit', 'SINDI', 'SURGE', 700)
     }
-  }, [flashUltra])
+  }, [flashUltra, showNote])
 
   const onTelemetry = useCallback((info) => {
     setTele(info)
@@ -296,7 +311,7 @@ export default function App() {
 
   return (
     <div
-      className={`app${phase === 'play' ? ' is-play' : ''}${focusUi ? ' is-focus' : ''}${loanPhase === 'slow' ? ' is-loan' : ''}${loanPhase === 'repay' ? ' is-repay' : ''}${dread === 'heart' ? ' is-heart' : ''}${dread === 'rewind' ? ' is-rewind' : ''}`}
+      className={`app${phase === 'play' ? ' is-play' : ''}${focusUi ? ' is-focus' : ''}${loanPhase === 'slow' ? ' is-loan' : ''}${loanPhase === 'repay' ? ' is-repay' : ''}${dread === 'heart' ? ' is-heart' : ''}${dread === 'rewind' ? ' is-rewind' : ''}${dread === 'surge' ? ' is-surge' : ''}`}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
