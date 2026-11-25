@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { focusSound, setMuted, startDrone, unlock } from './audio.js'
+import { LABEL } from './build.js'
 import { readBest, writeBest } from './game/constants.js'
 import World from './game/World.jsx'
 
@@ -240,6 +241,8 @@ export default function App() {
       )}
       {glitch && <div key={glitch.id} className="glitch-fx" />}
       {phase === 'dead' && <div className="flash" />}
+
+      <div className="build">{LABEL}</div>
 
       {phase === 'menu' && (
         <div className="menu">
