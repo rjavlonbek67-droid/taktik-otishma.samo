@@ -73,6 +73,48 @@ body {
   text-shadow: none;
 }
 
+.ultra {
+  position: absolute;
+  top: 28%;
+  left: 0;
+  right: 0;
+  z-index: 6;
+  text-align: center;
+  pointer-events: none;
+  animation: ultra-hit 0.72s steps(2, end) forwards;
+}
+
+.ultra small {
+  display: block;
+  color: #ff4d6a;
+  letter-spacing: 0.42em;
+  font-size: clamp(0.68rem, 2.2vw, 0.82rem);
+}
+
+.ultra strong {
+  display: block;
+  margin-top: 0.2rem;
+  color: #fff;
+  font-size: clamp(1.6rem, 7vw, 3.1rem);
+  letter-spacing: 0.12em;
+  text-shadow: 6px 0 #ff2bd6, -6px 0 #00f3ff;
+}
+
+.ultra-win strong {
+  color: #ffe14a;
+  text-shadow: 0 0 18px #ffe14a;
+}
+
+.ultra-hit {
+  animation-duration: 0.42s;
+}
+
+@keyframes ultra-hit {
+  0% { opacity: 1; transform: translate(8px, 0) skewX(-8deg) scale(1.08); }
+  40% { opacity: 1; transform: translate(-10px, 2px) skewX(6deg); }
+  100% { opacity: 0; transform: none; }
+}
+
 .note {
   position: absolute;
   top: calc(env(safe-area-inset-top) + 58px);

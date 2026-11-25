@@ -4,6 +4,8 @@ import { Bloom, ChromaticAberration, EffectComposer } from '@react-three/postpro
 import * as THREE from 'three'
 import {
   crashSound,
+  debtClearSound,
+  debtStrikeSound,
   echoSyncSound,
   echoWarnSound,
   gravitySound,
@@ -252,13 +254,15 @@ function rememberEcho(state) {
 }
 
 function stepLoan(state, dt, callbacks) {
+  state.loanEvent = null
   state.loanCd = Math.max(0, state.loanCd - dt)
   if (state.loan === 'slow') {
     state.loanT -= dt
     if (state.loanT <= 0) {
       state.loan = 'repay'
-      state.loanT = 1.25
-      state.boost = Math.max(state.boost, 0.9)
+      state.loanT = 1.35
+      state.boost = Math.max(state.boost, 1)
+      state.loanEvent = 'peak'
       repaySound()
       callbacks.current.onLoan?.({ phase: 'repay' })
     }
@@ -269,12 +273,40 @@ function stepLoan(state, dt, callbacks) {
       state.loan = 'idle'
       state.loanCd = 8
       if (paid) {
-        state.bonus += 36
-        callbacks.current.onLoan?.({ phase: 'clear', points: 36 })
+        const points = 96 + state.combo * 10 + state.echoCombo * 14
+        state.bonus += points
+        state.loanEvent = 'clear'
+        callbacks.current.onLoan?.({ phase: 'clear', points })
+      } else {
+        state.loanEvent = 'fail'
       }
       callbacks.current.onLoan?.({ phase: 'idle' })
     }
   }
+}
+
+function playLoanEvent(state, callbacks, origin) {
+  if (state.loanEvent === 'peak') {
+    state.recoil = 1
+    state.suspicion = 1
+    state.dutch = 1
+    state.glitch = 1
+    emitPulse(state, origin)
+    burstSparks(state, origin, 22)
+    tripGlitch(state, callbacks)
+  } else if (state.loanEvent === 'clear') {
+    state.flinch = 1
+    state.suspicion = 0.15
+    state.peekKick = 0
+    state.glitch = Math.max(state.glitch, 0.45)
+    emitPulse(state, origin)
+    burstSparks(state, origin, 14)
+    debtClearSound()
+  } else if (state.loanEvent === 'fail') {
+    state.recoil = 0.45
+    state.strain = Math.min(1, state.strain + 0.25)
+  }
+  state.loanEvent = null
 }
 
 function spawnGate(state) {
@@ -370,8 +402,11 @@ function liveCamera(state, dt, focusing, v, signals) {
   state.flinch = Math.max(0, state.flinch - dt * 2.4)
   state.peekKick += (0 - state.peekKick) * Math.min(1, dt * 7)
 
-  const swayTarget = focusing ? 0 : 1
-  state.sway += (swayTarget - state.sway) * Math.min(1, dt * (focusing ? 14 : 2.6))
+  const debt = state.loan === 'repay' ? 1 : state.loan === 'slow' ? 0.62 : 0
+  if (state.loan === 'slow') state.suspicion = Math.max(state.suspicion, 0.84)
+  if (state.loan === 'repay') state.suspicion = Math.max(state.suspicion, 0.96)
+  const swayTarget = (focusing || state.loan === 'slow') ? 0 : (state.loan === 'repay' ? 0.4 : 1)
+  state.sway += (swayTarget - state.sway) * Math.min(1, dt * (focusing || debt ? 14 : 2.6))
   state.breath += dt * (0.82 + signals.drive * 0.4) * (0.12 + state.sway * 0.88)
 
   if (signals.spike) state.recoil = 1
@@ -384,7 +419,7 @@ function liveCamera(state, dt, focusing, v, signals) {
   state.threatY += (diry - state.threatY) * Math.min(1, dt * 3.4)
 
   v.right.crossVectors(v.up, v.forward).normalize()
-  const calm = focusing ? 0.05 : 1
+  const calm = (focusing || state.loan === 'slow') ? 0.08 : 1
   const peek = state.suspicion * calm + state.peekKick
   const breathe = Math.sin(state.breath * 1.6) * 0.055 * state.sway
   const eye = Math.sin(state.breath * 0.67 + 0.4) * 0.03 * state.sway
@@ -394,18 +429,23 @@ function liveCamera(state, dt, focusing, v, signals) {
   v.cam.addScaledVector(v.right, peek * 1.28 * state.peekSide + eye + Math.sin(state.time * 41) * shake)
   v.cam.addScaledVector(v.up, Math.abs(peek) * 0.72 + breathe + Math.sin(state.time * 27 + 1.3) * shake * 0.7)
   v.cam.z -= state.recoil * 1.22
+  if (state.loan === 'slow') v.cam.z += 1.5
+  if (state.loan === 'repay') v.cam.z -= 0.95
   v.look.addScaledVector(v.right, peek * 0.24 * state.peekSide + eye * 1.35)
   v.look.addScaledVector(v.up, Math.cos(state.breath * 0.53) * 0.02 * state.sway)
   v.look.x += state.threatX * lean
   v.look.y += state.threatY * lean
   v.look.z -= state.recoil * 0.28
 
+  const debtRoll = (state.loan === 'repay' ? 1 : state.loan === 'slow' ? 0.5 : 0) * THREE.MathUtils.degToRad(9)
+  const rollCap = state.loan === 'repay' ? 16 : 12
   const roll = THREE.MathUtils.clamp(
     state.peekSide * state.suspicion * calm * THREE.MathUtils.degToRad(3.4)
       + state.dutchSide * state.dutch * THREE.MathUtils.degToRad(8)
+      + state.dutchSide * debtRoll
       + Math.sign(state.threatX || 1) * state.threat * (focusing ? 0.35 : 1) * THREE.MathUtils.degToRad(3.2),
-    THREE.MathUtils.degToRad(-11),
-    THREE.MathUtils.degToRad(11),
+    THREE.MathUtils.degToRad(-rollCap),
+    THREE.MathUtils.degToRad(rollCap),
   )
   v.rolled.copy(v.up).multiplyScalar(Math.cos(roll)).addScaledVector(v.right, Math.sin(roll))
 }
@@ -652,6 +692,9 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
       state.loan = 'slow'
       state.loanT = 1.8
       state.loanClean = true
+      state.suspicion = Math.max(state.suspicion, 0.86)
+      state.dutch = 0.95
+      state.sway = 0
       loanSound()
       callbacks.current.onLoan?.({ phase: 'slow' })
     } else if (input.current.loan) {
@@ -677,7 +720,7 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
     const cruise = Math.min(29, 13 + state.z * 0.011) * Math.min(1, 0.35 + state.age / 0.7)
     state.boost = Math.max(0, state.boost - dt * 1.4)
     let speed = cruise * (1 + state.boost * 0.62)
-    if (state.loan === 'repay') speed *= 1.42
+    if (state.loan === 'repay') speed *= 1.72
     state.prevZ = state.z
     state.z += speed * step
     setDrive(speed, state.loan === 'repay' ? false : (focusing || state.loan === 'slow'))
@@ -685,6 +728,7 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
     while (state.nextSpawn < state.z + 95) spawnGate(state)
 
     placeBall(state.z, state.angle, state.targetWall, v.pos)
+    playLoanEvent(state, callbacks, v.pos)
     let hit = false
     for (const slot of state.slots) {
       if (!slot.active) continue
@@ -703,6 +747,11 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
       state.crashed = true
       state.alive = false
       const crashedScore = Math.floor(state.z * 0.45 + state.bonus)
+      if (state.loan !== 'idle') {
+        debtStrikeSound()
+        tripGlitch(state, callbacks)
+        callbacks.current.onLoan?.({ phase: 'strike' })
+      }
       crashSound()
       stopDrone()
       vibrate(48)
@@ -722,8 +771,16 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
       if (danger) {
         state.strain = Math.min(1, state.strain + 0.55)
         state.echoCombo = 0
+        state.recoil = 1
         echoWarnSound()
         tripGlitch(state, callbacks)
+        burstSparks(state, v.pos, state.loan === 'idle' ? 8 : 18)
+        if (state.loan !== 'idle') {
+          state.loanClean = false
+          emitPulse(state, v.pos)
+          debtStrikeSound()
+          callbacks.current.onLoan?.({ phase: 'strike' })
+        }
         callbacks.current.onEcho?.({ kind: 'warn' })
         continue
       }
@@ -881,7 +938,7 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
       spike: false,
       rule: input.current.rule,
     })
-    const loanFov = state.loan === 'slow' ? -7 : state.loan === 'repay' ? 5 : 0
+    const loanFov = state.loan === 'slow' ? -11 : state.loan === 'repay' ? 10 : 0
     const fov = Math.min(98, (size.width < size.height ? 84 : 68) + drive * 14 - (focusing ? 8 : 0) + loanFov + state.recoil * 3.2)
     if (Math.abs(camera.fov - fov) > 0.12) {
       camera.fov = fov

@@ -18,6 +18,7 @@ export default function App() {
   const [muted, setMutedUi] = useState(false)
   const [glitch, setGlitch] = useState(null)
   const [note, setNote] = useState(null)
+  const [ultra, setUltra] = useState(null)
   const [loanPhase, setLoanPhase] = useState('idle')
   const [loanLeft, setLoanLeft] = useState(0)
   const phaseRef = useRef(phase)
@@ -39,6 +40,7 @@ export default function App() {
   const missTimer = useRef(0)
   const glitchTimer = useRef(0)
   const noteTimer = useRef(0)
+  const ultraTimer = useRef(0)
 
   phaseRef.current = phase
   styleRef.current = style
@@ -109,20 +111,30 @@ export default function App() {
     else showNote('XAVFLI IZ', 700)
   }, [showNote])
 
+  const flashUltra = useCallback((kind, kicker, title, ms) => {
+    const id = performance.now()
+    setUltra({ id, kind, kicker, title })
+    window.clearTimeout(ultraTimer.current)
+    ultraTimer.current = window.setTimeout(() => setUltra(null), ms)
+  }, [])
+
   const onLoan = useCallback((info) => {
     if (info.phase === 'slow') {
       setLoanPhase('slow')
-      showNote('VAQT QARZI', 1600)
+      flashUltra('debt', 'XAVF', 'VAQT QARZI', 1700)
     } else if (info.phase === 'repay') {
       setLoanPhase('repay')
-      showNote('QARZ QAYTARILMOQDA', 1200)
+      flashUltra('peak', 'AVJ', 'QARZ QAYTARILMOQDA', 1200)
     } else if (info.phase === 'clear') {
-      showNote(`QARZ YOPILDI +${info.points}`, 900)
+      flashUltra('win', 'ULTRA', `+${info.points}`, 1000)
+    } else if (info.phase === 'strike') {
+      setLoanPhase('idle')
+      flashUltra('hit', 'ZARBA', 'QARZ SINDI', 720)
     } else {
       setLoanPhase('idle')
       setLoanLeft(8)
     }
-  }, [showNote])
+  }, [flashUltra])
 
   const requestLoan = useCallback(() => {
     if (phaseRef.current !== 'play') return
@@ -157,6 +169,7 @@ export default function App() {
     window.clearTimeout(missTimer.current)
     window.clearTimeout(glitchTimer.current)
     window.clearTimeout(noteTimer.current)
+    window.clearTimeout(ultraTimer.current)
   }, [])
 
   useEffect(() => {
@@ -301,6 +314,12 @@ export default function App() {
         <div key={miss.id} className="near" data-mult={miss.mult}>
           NEAR MISS +{miss.points}
           <b>{miss.combo > 1 ? `COMBO x${miss.combo}` : `x${miss.mult}`}</b>
+        </div>
+      )}
+      {ultra && (
+        <div key={ultra.id} className={`ultra ultra-${ultra.kind}`}>
+          <small>{ultra.kicker}</small>
+          <strong>{ultra.title}</strong>
         </div>
       )}
       {note && (

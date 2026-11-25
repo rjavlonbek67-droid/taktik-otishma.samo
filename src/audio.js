@@ -333,16 +333,73 @@ export function echoWarnSound() {
   noiseHit(0.1, 320, 0.7, 0.06)
 }
 
+function wetTone({ type, from, to, dur, peak }) {
+  const c = getCtx()
+  const bus = ensureEcho()
+  if (!c || !master) return
+  const t = c.currentTime
+  const osc = c.createOscillator()
+  const gain = c.createGain()
+  osc.type = type
+  osc.frequency.setValueAtTime(Math.max(1, from), t)
+  osc.frequency.exponentialRampToValueAtTime(Math.max(1, to), t + dur)
+  gain.gain.setValueAtTime(0.0001, t)
+  gain.gain.exponentialRampToValueAtTime(peak, t + 0.012)
+  gain.gain.exponentialRampToValueAtTime(0.0001, t + dur)
+  osc.connect(gain)
+  gain.connect(master)
+  if (bus) {
+    gain.connect(bus.delay)
+    gain.connect(bus.conv)
+  }
+  osc.start(t)
+  osc.stop(t + dur + 0.02)
+  osc.onended = () => {
+    osc.disconnect()
+    gain.disconnect()
+  }
+}
+
 export function loanSound() {
   unlock()
   burst({
     type: 'sine',
-    from: 320,
-    to: 90,
-    dur: 0.28,
-    peak: 0.08,
-    filterFreq: 700,
-    filterTo: 140,
+    from: 92,
+    to: 34,
+    dur: 0.42,
+    peak: 0.18,
+    filterFreq: 220,
+    filterTo: 70,
+  })
+  wetTone({ type: 'triangle', from: 180, to: 64, dur: 0.5, peak: 0.07 })
+}
+
+export function debtStrikeSound() {
+  unlock()
+  burst({
+    type: 'square',
+    from: 140,
+    to: 32,
+    dur: 0.22,
+    peak: 0.16,
+    filterFreq: 480,
+    filterTo: 80,
+  })
+  noiseHit(0.16, 180, 0.8, 0.1)
+  wetTone({ type: 'sawtooth', from: 90, to: 40, dur: 0.28, peak: 0.06 })
+}
+
+export function debtClearSound() {
+  unlock()
+  wetTone({ type: 'sine', from: 220, to: 1320, dur: 0.28, peak: 0.1 })
+  burst({
+    type: 'triangle',
+    from: 440,
+    to: 1760,
+    dur: 0.18,
+    peak: 0.06,
+    filterFreq: 2400,
+    filterType: 'highpass',
   })
 }
 
@@ -350,22 +407,15 @@ export function repaySound() {
   unlock()
   burst({
     type: 'sawtooth',
-    from: 70,
-    to: 220,
-    dur: 0.2,
-    peak: 0.1,
-    filterFreq: 400,
-    filterTo: 1400,
+    from: 42,
+    to: 280,
+    dur: 0.26,
+    peak: 0.14,
+    filterFreq: 240,
+    filterTo: 1800,
   })
-  burst({
-    type: 'triangle',
-    from: 180,
-    to: 540,
-    dur: 0.16,
-    peak: 0.05,
-    filterFreq: 1600,
-    filterTo: 500,
-  })
+  wetTone({ type: 'square', from: 80, to: 420, dur: 0.22, peak: 0.05 })
+  noiseHit(0.12, 900, 0.6, 0.07)
 }
 
 export function crashSound() {
