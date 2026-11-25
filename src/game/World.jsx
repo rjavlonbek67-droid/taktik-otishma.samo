@@ -4,6 +4,7 @@ import { Bloom, ChromaticAberration, EffectComposer } from '@react-three/postpro
 import * as THREE from 'three'
 import {
   crashSound,
+  clickShiftSound,
   debtClearSound,
   debtStrikeSound,
   decoySound,
@@ -44,6 +45,13 @@ function integrateAngle(angle, vel, target, step) {
   turnScratch.angle = angle + nextVel * step
   turnScratch.vel = nextVel
   return turnScratch
+}
+
+function turnEase(u) {
+  const t = u < 0 ? 0 : (u > 1 ? 1 : u)
+  const cubic = 1 - (1 - t) * (1 - t) * (1 - t)
+  const exp = 1 - Math.exp(-t * 6)
+  return exp * 0.42 + cubic * 0.58
 }
 const ARC = 32
 const SPECKS = 72
@@ -212,6 +220,15 @@ function createRuntime() {
     lodHold: 0,
     moodPack: { mood: 0.35, rhythm: 1, strain: 0, blindZ: 0, blindLen: 6, blindAmt: 0 },
     signals: { drive: 0, threat: 0, dirx: 0, diry: 0, spike: false, rule: 0 },
+    turning: false,
+    turnFrom: 0,
+    turnDelta: 0,
+    turnU: 1,
+    fovKick: 0,
+    hitStop: 0,
+    arrow: 0,
+    arrowSign: 1,
+    lodApplied: -1,
   }
 }
 
@@ -282,6 +299,11 @@ function resetRuntime(state) {
   state.surgeClean = true
   state.surgePulse = 0
   state.surgeEvent = null
+  state.turning = false
+  state.turnU = 1
+  state.fovKick = 0
+  state.hitStop = 0
+  state.arrow = 0
   for (const decoy of state.decoys) decoy.on = false
   state.gates.length = 0
   state.pulses.length = 0
@@ -850,6 +872,11 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
     geometry.setDrawRange(0, 0)
     return geometry
   }, [])
+  const arrowGeo = useMemo(() => {
+    const geometry = new THREE.BufferGeometry()
+    geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(9), 3))
+    return geometry
+  }, [])
   const witnessGeo = useMemo(() => witnessFigure(), [])
 
   useEffect(() => () => {
@@ -868,11 +895,12 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
     dimGeo.dispose()
     speckGeo.dispose()
     sparkGeo.dispose()
+    arrowGeo.dispose()
     witnessGeo.lines.dispose()
     witnessGeo.points.dispose()
     label.texture.dispose()
     label.material.dispose()
-  }, [arcGeo, boxEdges, dimGeo, label, sectionGeo, sparkGeo, speckGeo, sphereEdges, tunnel, witnessGeo])
+  }, [arcGeo, arrowGeo, boxEdges, dimGeo, label, sectionGeo, sparkGeo, speckGeo, sphereEdges, tunnel, witnessGeo])
 
   const runtime = useRef(null)
   if (!runtime.current) runtime.current = createRuntime()
@@ -902,6 +930,8 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
   const fillLight = useRef(null)
   const coreMat = useRef(null)
   const chromaFx = useRef(null)
+  const bloomRef = useRef(null)
+  const arrowRef = useRef(null)
   const tmp = useRef({
     pos: new THREE.Vector3(),
     up: new THREE.Vector3(),
@@ -932,9 +962,9 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
         state.fpsShown = shown
         callbacks.current.onFps?.(shown)
       }
-      if (state.fpsSmooth < 46) state.lodHold = Math.min(1.4, state.lodHold + 0.35)
-      else state.lodHold = Math.max(0, state.lodHold - 0.35)
-      state.lod = state.lodHold > 0.7 ? 1 : 0
+      if (state.fpsSmooth < 54) state.lodHold = Math.min(1.5, state.lodHold + 0.4)
+      else if (state.fpsSmooth >= 59) state.lodHold = Math.max(0, state.lodHold - 0.45)
+      state.lod = state.lodHold > 0.5 ? 1 : 0
     }
     state.time += dt
 
@@ -991,6 +1021,7 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
       if (blindFar.current) blindFar.current.visible = false
       if (witnessRef.current) witnessRef.current.visible = false
       if (shadowRef.current) shadowRef.current.visible = false
+      if (arrowRef.current) arrowRef.current.visible = false
       if (keyLight.current) keyLight.current.intensity = 10
       if (fillLight.current) fillLight.current.intensity = 3
       if (coreMat.current) coreMat.current.opacity = 1
@@ -1013,13 +1044,17 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
 
     state.age += dt
     state.cooldown = Math.max(0, state.cooldown - dt)
+    state.fovKick = Math.max(0, state.fovKick - dt)
+    state.arrow = Math.max(0, state.arrow - dt)
     const focusing = Boolean(input.current.focus)
+    const queue = input.current
 
-    if (input.current.pending && state.cooldown <= 0) {
-      const sign = input.current.sign
-      const immediate = input.current.immediate
-      input.current.pending = false
-      input.current.immediate = false
+    if (queue.qCount > 0 && state.cooldown <= 0) {
+      const cmd = queue.slots[queue.head]
+      const sign = cmd.sign
+      const immediate = cmd.immediate
+      queue.head = (queue.head + 1) % 2
+      queue.qCount -= 1
       const nextWall = (state.targetWall + sign + 8) % 4
       for (const decoy of state.decoys) {
         if (decoy.on && decoy.wall === state.targetWall && nextWall !== decoy.wall) decoy.held = false
@@ -1030,19 +1065,26 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
       state.peekKick = -state.suspicion * state.peekSide
       state.suspicion = 0
       state.flinch = 1
+      state.fovKick = 0.032
+      state.arrow = 0.09
+      state.arrowSign = sign
       if (Math.abs(sign) >= 2) {
         state.rule = 1
         state.dutchSide = sign > 0 ? 1 : -1
       }
       if (immediate) {
+        state.turning = false
         state.angle = state.targetWall * Math.PI * 0.5
         state.angleVel = 0
-        state.cooldown = 0.08
+        state.cooldown = 0.07
         state.recoil = Math.max(state.recoil, 0.85)
       } else {
-        const aim = shortest(state.targetWall * Math.PI * 0.5, state.angle)
-        state.angleVel = Math.sign(aim || sign) * 8.4
-        state.cooldown = 0.12
+        state.turning = true
+        state.turnFrom = state.angle
+        state.turnDelta = shortest(state.targetWall * Math.PI * 0.5, state.angle)
+        state.turnU = 0
+        state.angleVel = 0
+        state.cooldown = 0.13
         state.recoil = Math.max(state.recoil, 0.5)
       }
       placeBall(state.z, state.angle, state.targetWall, v.pos)
@@ -1050,16 +1092,10 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
       emitPulse(state, v.pos)
       burstSparks(state, v.pos, Math.abs(sign) >= 2 ? 16 : 10)
       tripGlitch(state, callbacks)
+      clickShiftSound()
       gravitySound(sign)
       pulseSound()
       vibrate(12)
-    } else if (input.current.pending) {
-      input.current.buffer -= dt
-      if (input.current.buffer <= 0) {
-        input.current.pending = false
-        input.current.immediate = false
-        input.current.buffer = 0
-      }
     }
 
     if (input.current.impulse) {
@@ -1097,9 +1133,21 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
     }
 
     const target = state.targetWall * Math.PI * 0.5
-    const turned = integrateAngle(state.angle, state.angleVel, target, step)
-    state.angle = turned.angle
-    state.angleVel = turned.vel
+    if (state.turning) {
+      state.turnU += dt / 0.128
+      if (state.turnU >= 1) {
+        state.turning = false
+        state.angle = state.turnFrom + state.turnDelta
+        state.angleVel = 0
+      } else {
+        state.angle = state.turnFrom + state.turnDelta * turnEase(state.turnU)
+        state.angleVel = 0
+      }
+    } else {
+      const turned = integrateAngle(state.angle, state.angleVel, target, step)
+      state.angle = turned.angle
+      state.angleVel = turned.vel
+    }
 
     const cruise = Math.min(29, 13 + state.z * 0.011) * Math.min(1, 0.35 + state.age / 0.7)
     state.boost = Math.max(0, state.boost - dt * 1.4)
@@ -1110,7 +1158,9 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
     if (signed < 0) speed = -Math.abs(cruise) * 0.58
     state.prevZ = state.z
     const motion = state.rewind > 0 ? dt : step
-    state.z = Math.max(0, state.z + speed * motion)
+    const stopping = state.hitStop > 0
+    if (stopping) state.hitStop = Math.max(0, state.hitStop - dt)
+    state.z = Math.max(0, state.z + speed * motion * (stopping ? 0.08 : 1))
     state.scanTime += state.rewind > 0 ? -dt * 2.6 : dt
     setDrive(
       state.rewind > 0 ? 6 : Math.abs(speed),
@@ -1253,6 +1303,7 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
       const points = (bestMult === 3 ? 40 : 18) * state.combo
       state.bonus += points
       bestSlot.flash = 1
+      state.hitStop = 0.03
       emitPulse(state, v.pos)
       nearMissSound(bestMult)
       vibrate(18)
@@ -1394,7 +1445,8 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
     const loanFov = state.loan === 'slow' ? -11 : state.loan === 'repay' ? 10 : 0
     const heartFov = state.heart > 0 ? (state.heartFlash > 0.02 ? 6 : -8) : 0
     const surgeFov = state.surge > 0 ? 7 : 0
-    const fov = Math.min(98, (size.width < size.height ? 84 : 68) + drive * 14 - (focusing ? 8 : 0) + loanFov + heartFov + surgeFov + state.recoil * 3.2)
+    const kickFov = state.fovKick > 0 ? 6 * (state.fovKick / 0.032) : 0
+    const fov = Math.min(98, (size.width < size.height ? 84 : 68) + drive * 14 - (focusing ? 8 : 0) + loanFov + heartFov + surgeFov + kickFov + state.recoil * 3.2)
     if (Math.abs(camera.fov - fov) > 0.12) {
       camera.fov = fov
       camera.updateProjectionMatrix()
@@ -1403,11 +1455,15 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
     camera.position.copy(v.cam)
     camera.lookAt(v.look)
     if (chromaFx.current) {
-      const split = state.glitch
+      const split = state.lod ? state.glitch * 0.28 : state.glitch
       chromaFx.current.offset.set(
         (Math.random() - 0.5) * 0.02 * split,
         (Math.random() - 0.5) * 0.012 * split,
       )
+    }
+    if (bloomRef.current && state.lodApplied !== state.lod) {
+      state.lodApplied = state.lod
+      bloomRef.current.intensity = state.lod ? 0.58 : 1.25
     }
 
     const anchor = Math.floor(state.z / 8) * 8
@@ -1467,6 +1523,10 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
     tunnel.rings.uniforms.uGain.value = (1.15 * (1 - mix * 0.7) + flash * 0.7) * moodGain
     tunnel.railLines.opacity = Math.min(1, (mix * 0.92 + flash * 0.9) * moodGain + (1 - mix) * state.mood * 0.28)
     tunnel.ringLines.opacity = Math.min(1, (mix * 0.8 + flash * 0.75) * moodGain + (1 - mix) * state.mood * 0.2)
+    if (state.arrow > 0.02) {
+      tunnel.railLines.opacity = Math.min(1, tunnel.railLines.opacity + 0.46)
+      tunnel.ringLines.opacity = Math.min(1, tunnel.ringLines.opacity + 0.3)
+    }
     if (state.heart > 0 && state.heartFlash < 0.04) {
       tunnel.rails.uniforms.uGain.value *= 0.16
       tunnel.rings.uniforms.uGain.value *= 0.16
@@ -1718,13 +1778,39 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
       })
     }
 
+    if (arrowRef.current) {
+      const showArrow = state.arrow > 0.001
+      arrowRef.current.visible = showArrow
+      if (showArrow) {
+        const dir = Math.sign(state.arrowSign || 1) || 1
+        const tx = Math.cos(state.angle) * dir
+        const ty = Math.sin(state.angle) * dir
+        const arr = arrowGeo.attributes.position.array
+        const ox = v.pos.x + tx * 0.2
+        const oy = v.pos.y + ty * 0.2
+        const oz = v.pos.z + 0.25
+        const px = -ty
+        const py = tx
+        arr[0] = ox - tx * 0.26 + px * 0.16
+        arr[1] = oy - ty * 0.26 + py * 0.16
+        arr[2] = oz
+        arr[3] = ox + tx * 0.36
+        arr[4] = oy + ty * 0.36
+        arr[5] = oz
+        arr[6] = ox - tx * 0.26 - px * 0.16
+        arr[7] = oy - ty * 0.26 - py * 0.16
+        arr[8] = oz
+        arrowGeo.attributes.position.needsUpdate = true
+        arrowRef.current.material.opacity = Math.min(1, state.arrow / 0.09)
+      }
+    }
     if (witnessRef.current) {
       const shown = stepWitness(state, dt, v)
       witnessRef.current.visible = shown
       if (shown) aimWitness(witnessRef.current, state.witness.wall, state.witness.z, v.pos)
     }
     if (shadowRef.current) {
-      const shade = state.heart > 0 && state.heartFlash < 0.05
+      const shade = !state.lod && state.heart > 0 && state.heartFlash < 0.05
       shadowRef.current.visible = shade
       if (shade) {
         shadowRef.current.position.set(
@@ -1754,6 +1840,9 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
       <lineSegments ref={dimRef} geometry={dimGeo} visible={false} frustumCulled={false}>
         <lineBasicMaterial color="#ff4d6a" transparent opacity={0.92} toneMapped={false} depthWrite={false} />
       </lineSegments>
+      <line ref={arrowRef} geometry={arrowGeo} visible={false} frustumCulled={false}>
+        <lineBasicMaterial color="#e7fbff" transparent opacity={0.9} toneMapped={false} depthWrite={false} />
+      </line>
       <line ref={arcRef} geometry={arcGeo} visible={false} frustumCulled={false}>
         <lineDashedMaterial
           color="#9af6ff"
@@ -1972,6 +2061,7 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
         frameBufferType={THREE.UnsignedByteType}
       >
         <Bloom
+          ref={bloomRef}
           intensity={1.25}
           luminanceThreshold={0.22}
           luminanceSmoothing={0.2}
@@ -2000,7 +2090,7 @@ function WorldCanvas({ active, runId, input, styleRef, onScore, onCrash, onNearM
     <Canvas
       className="view"
       flat
-      dpr={[1, 1.6]}
+      dpr={[1, Math.min(window.devicePixelRatio || 1, 2)]}
       gl={{
         antialias: false,
         alpha: false,

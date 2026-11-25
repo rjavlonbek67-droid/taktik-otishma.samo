@@ -403,6 +403,28 @@ export function debtClearSound() {
   })
 }
 
+export function clickShiftSound() {
+  unlock()
+  burst({
+    type: 'square',
+    from: 168,
+    to: 58,
+    dur: 0.032,
+    peak: 0.1,
+    filterFreq: 480,
+    filterTo: 80,
+  })
+  burst({
+    type: 'sine',
+    from: 92,
+    to: 40,
+    dur: 0.036,
+    peak: 0.15,
+    filterFreq: 150,
+    filterTo: 48,
+  })
+}
+
 export function rewindSound() {
   unlock()
   burst({

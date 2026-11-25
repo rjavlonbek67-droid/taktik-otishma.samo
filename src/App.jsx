@@ -4,10 +4,21 @@ import { LABEL } from './build.js'
 import { readBest, writeBest } from './game/constants.js'
 import World from './game/World.jsx'
 
-const SWIPE_AXIS = 12
-const SWIPE_BIAS = 1.55
 const HOLD_MS = 140
-const BUFFER_S = 0.11
+const SWIPE_FAST = 12
+const SWIPE_FIRM = 24
+const SECTOR = Math.PI / 2
+
+function vectorSign(dx, dy, elapsed) {
+  const mag = Math.hypot(dx, dy)
+  const fast = mag >= SWIPE_FAST && elapsed <= 180
+  if (!fast && mag < SWIPE_FIRM) return 0
+  const sector = Math.round(Math.atan2(dy, dx) / SECTOR)
+  if (sector === 0) return 1
+  if (sector === 1) return 2
+  if (sector === -1) return -2
+  return -1
+}
 
 export default function App() {
   const [phase, setPhase] = useState('menu')
@@ -38,10 +49,21 @@ export default function App() {
     glitch: 0,
     loan: false,
     buffer: 0,
+    head: 0,
+    qCount: 0,
+    slots: [
+      { sign: 1, immediate: false, at: 0 },
+      { sign: 1, immediate: false, at: 0 },
+    ],
   })
-  const pointers = useRef(new Set())
-  const gesture = useRef(null)
-  const holdTimer = useRef(0)
+  const fingers = useRef(new Map())
+  const fingerPool = useRef([
+    { id: 0, x: 0, y: 0, t: 0, swiped: false, held: false, live: false, timer: 0 },
+    { id: 0, x: 0, y: 0, t: 0, swiped: false, held: false, live: false, timer: 0 },
+    { id: 0, x: 0, y: 0, t: 0, swiped: false, held: false, live: false, timer: 0 },
+  ])
+  const appRef = useRef(null)
+  const bind = useRef({})
   const crashTimer = useRef(0)
   const missTimer = useRef(0)
   const glitchTimer = useRef(0)
@@ -62,14 +84,27 @@ export default function App() {
 
   const queueFlip = useCallback((sign, immediate = false) => {
     if (phaseRef.current !== 'play') return
-    input.current.pending = true
-    input.current.sign = sign
-    input.current.immediate = immediate
-    input.current.buffer = BUFFER_S
+    const queue = input.current
+    const now = performance.now()
+    if (queue.qCount >= 2) {
+      const newest = (queue.head + 1) % 2
+      queue.slots[newest].sign = sign
+      queue.slots[newest].immediate = immediate
+      queue.slots[newest].at = now
+      return
+    }
+    const index = (queue.head + queue.qCount) % 2
+    queue.slots[index].sign = sign
+    queue.slots[index].immediate = immediate
+    queue.slots[index].at = now
+    queue.qCount += 1
   }, [])
 
   const clearHold = useCallback(() => {
-    window.clearTimeout(holdTimer.current)
+    fingerPool.current.forEach((finger) => {
+      window.clearTimeout(finger.timer)
+      finger.held = false
+    })
     input.current.focus = false
     setFocusUi(false)
   }, [])
@@ -81,6 +116,8 @@ export default function App() {
     startDrone()
     input.current.pending = false
     input.current.buffer = 0
+    input.current.qCount = 0
+    input.current.head = 0
     input.current.impulse = false
     input.current.loan = false
     setLoanPhase('idle')
@@ -210,7 +247,7 @@ export default function App() {
 
   useEffect(() => () => {
     window.clearTimeout(crashTimer.current)
-    window.clearTimeout(holdTimer.current)
+    fingerPool.current.forEach((finger) => window.clearTimeout(finger.timer))
     window.clearTimeout(missTimer.current)
     window.clearTimeout(glitchTimer.current)
     window.clearTimeout(noteTimer.current)
@@ -226,16 +263,28 @@ export default function App() {
   }, [loanLeft > 0])
 
   useEffect(() => {
+    const node = appRef.current
+    const opts = { passive: false }
     const block = (event) => {
       if (phaseRef.current !== 'play') return
       if (event.target?.closest?.('button')) return
       event.preventDefault()
     }
-    const opts = { passive: false }
+    const down = (event) => bind.current.down?.(event)
+    const move = (event) => bind.current.move?.(event)
+    const up = (event) => bind.current.up?.(event)
+    node?.addEventListener('pointerdown', down, opts)
+    node?.addEventListener('pointermove', move, opts)
+    node?.addEventListener('pointerup', up, opts)
+    node?.addEventListener('pointercancel', up, opts)
     window.addEventListener('touchstart', block, opts)
     window.addEventListener('touchmove', block, opts)
     window.addEventListener('gesturestart', block, opts)
     return () => {
+      node?.removeEventListener('pointerdown', down)
+      node?.removeEventListener('pointermove', move)
+      node?.removeEventListener('pointerup', up)
+      node?.removeEventListener('pointercancel', up)
       window.removeEventListener('touchstart', block)
       window.removeEventListener('touchmove', block)
       window.removeEventListener('gesturestart', block)
@@ -260,29 +309,49 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey)
   }, [queueFlip])
 
+  const takeFinger = () => {
+    const pool = fingerPool.current
+    for (let i = 0; i < pool.length; i += 1) {
+      if (!pool[i].live) return pool[i]
+    }
+    return null
+  }
+
   const onPointerDown = (event) => {
-    if (event.target.closest('button')) return
-    pointers.current.add(event.pointerId)
-    if (phaseRef.current === 'play' && pointers.current.size >= 2) {
-      window.clearTimeout(holdTimer.current)
-      gesture.current = null
+    if (event.target.closest?.('button')) return
+    if (phaseRef.current === 'play') event.preventDefault()
+    const finger = takeFinger()
+    if (!finger) return
+    finger.live = true
+    finger.id = event.pointerId
+    finger.x = event.clientX
+    finger.y = event.clientY
+    finger.t = performance.now()
+    finger.swiped = false
+    finger.held = false
+    fingers.current.set(event.pointerId, finger)
+    let live = 0
+    let swiped = false
+    fingers.current.forEach((item) => {
+      if (!item.live) return
+      live += 1
+      if (item.swiped) swiped = true
+    })
+    if (phaseRef.current === 'play' && live >= 2 && !swiped) {
+      fingers.current.forEach((item) => {
+        window.clearTimeout(item.timer)
+        item.swiped = true
+        item.held = false
+      })
       input.current.focus = false
       setFocusUi(false)
       requestLoan()
       return
     }
     if (phaseRef.current !== 'play') return
-    gesture.current = {
-      x: event.clientX,
-      y: event.clientY,
-      swiped: false,
-      held: false,
-    }
-    window.clearTimeout(holdTimer.current)
-    holdTimer.current = window.setTimeout(() => {
-      const current = gesture.current
-      if (!current || current.swiped || phaseRef.current !== 'play') return
-      current.held = true
+    finger.timer = window.setTimeout(() => {
+      if (!finger.live || finger.swiped || phaseRef.current !== 'play') return
+      finger.held = true
       input.current.focus = true
       setFocusUi(true)
       focusSound()
@@ -291,51 +360,61 @@ export default function App() {
   }
 
   const onPointerMove = (event) => {
-    const current = gesture.current
-    if (!current || current.swiped || phaseRef.current !== 'play') return
-    const dx = event.clientX - current.x
-    const dy = event.clientY - current.y
-    const adx = Math.abs(dx)
-    const ady = Math.abs(dy)
-    const along = Math.max(adx, ady)
-    const across = Math.min(adx, ady)
-    if (along < SWIPE_AXIS) return
-    if (along < across * SWIPE_BIAS && along < 22) return
-    current.swiped = true
-    window.clearTimeout(holdTimer.current)
-    if (current.held) {
-      current.held = false
-      input.current.focus = false
-      input.current.impulse = true
-      setFocusUi(false)
+    if (phaseRef.current === 'play') event.preventDefault()
+    const finger = fingers.current.get(event.pointerId)
+    if (!finger || finger.swiped || phaseRef.current !== 'play') return
+    const sign = vectorSign(event.clientX - finger.x, event.clientY - finger.y, performance.now() - finger.t)
+    if (!sign) return
+    finger.swiped = true
+    window.clearTimeout(finger.timer)
+    if (finger.held) {
+      finger.held = false
+      let otherHeld = false
+      fingers.current.forEach((item) => {
+        if (item !== finger && item.live && item.held) otherHeld = true
+      })
+      if (!otherHeld) {
+        input.current.focus = false
+        input.current.impulse = true
+        setFocusUi(false)
+      }
     }
-    const horizontal = Math.abs(dx) >= Math.abs(dy)
-    queueFlip(horizontal ? (dx > 0 ? 1 : -1) : (dy > 0 ? 2 : -2), true)
+    queueFlip(sign, true)
   }
 
   const onPointerUp = (event) => {
-    pointers.current.delete(event.pointerId)
-    window.clearTimeout(holdTimer.current)
-    const current = gesture.current
-    gesture.current = null
-    if (pointers.current.size > 0) return
-    if (!current || phaseRef.current !== 'play') return
-    if (current.held) {
+    const finger = fingers.current.get(event.pointerId)
+    if (!finger) return
+    window.clearTimeout(finger.timer)
+    fingers.current.delete(event.pointerId)
+    const wasHeld = finger.held
+    const wasSwiped = finger.swiped
+    finger.live = false
+    finger.held = false
+    let stillHeld = false
+    let others = 0
+    fingers.current.forEach((item) => {
+      if (!item.live) return
+      others += 1
+      if (item.held) stillHeld = true
+    })
+    if (wasHeld && !stillHeld && phaseRef.current === 'play') {
       input.current.focus = false
       input.current.impulse = true
       setFocusUi(false)
       return
     }
-    if (!current.swiped) queueFlip(1, false)
+    if (!wasSwiped && !wasHeld && others === 0 && phaseRef.current === 'play') queueFlip(1, false)
   }
+
+  bind.current.down = onPointerDown
+  bind.current.move = onPointerMove
+  bind.current.up = onPointerUp
 
   return (
     <div
+      ref={appRef}
       className={`app${phase === 'play' ? ' is-play' : ''}${focusUi ? ' is-focus' : ''}${loanPhase === 'slow' ? ' is-loan' : ''}${loanPhase === 'repay' ? ' is-repay' : ''}${dread === 'heart' ? ' is-heart' : ''}${dread === 'rewind' ? ' is-rewind' : ''}${dread === 'surge' ? ' is-surge' : ''}`}
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-      onPointerCancel={onPointerUp}
       onContextMenu={(event) => event.preventDefault()}
     >
       <World
