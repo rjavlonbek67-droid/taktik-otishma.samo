@@ -30,7 +30,21 @@ import { buildTunnelGeometry, createTunnelMaterial, syncTunnel } from './tunnel.
 const HALF_THIN = 0.26
 const HALF_WIDE = 0.85
 const HALF_DEEP = 0.64
-const OMEGA = 12
+const OMEGA_FAR = 18
+const OMEGA_NEAR = 11
+const turnScratch = { angle: 0, vel: 0 }
+
+function integrateAngle(angle, vel, target, step) {
+  const diff = shortest(target, angle)
+  const far = Math.abs(diff) > 0.4
+  const omega = far ? OMEGA_FAR : OMEGA_NEAR
+  const accel = diff * omega * omega - 2 * omega * vel
+  const cap = far ? 14 : 8
+  const nextVel = Math.max(-cap, Math.min(cap, vel + accel * step))
+  turnScratch.angle = angle + nextVel * step
+  turnScratch.vel = nextVel
+  return turnScratch
+}
 const ARC = 32
 const SPECKS = 72
 const SPARKS = 48
@@ -183,6 +197,21 @@ function createRuntime() {
     surgeClean: true,
     surgePulse: 0,
     surgeEvent: null,
+    pulsePool: Array.from({ length: 4 }, () => ({
+      id: 0,
+      age: 0,
+      radius: 0,
+      pos: new THREE.Vector3(),
+    })),
+    wavePool: Array.from({ length: 3 }, () => ({ id: 0, z: 0, life: 0 })),
+    echoPool: Array.from({ length: 8 }, () => ({ z: 0, wall: 0, synced: false })),
+    fpsSmooth: 60,
+    fpsReport: 0.4,
+    fpsShown: 0,
+    lod: 0,
+    lodHold: 0,
+    moodPack: { mood: 0.35, rhythm: 1, strain: 0, blindZ: 0, blindLen: 6, blindAmt: 0 },
+    signals: { drive: 0, threat: 0, dirx: 0, diry: 0, spike: false, rule: 0 },
   }
 }
 
@@ -268,23 +297,36 @@ function resetRuntime(state) {
   }
 }
 
+function claim(list, pool) {
+  for (let i = 0; i < pool.length; i += 1) {
+    if (list.indexOf(pool[i]) === -1) {
+      list.push(pool[i])
+      return pool[i]
+    }
+  }
+  const item = list.shift()
+  list.push(item)
+  return item
+}
+
 function emitPulse(state, origin) {
-  state.pulses.push({
-    id: state.pid,
-    age: 0,
-    radius: 0.45,
-    pos: origin.clone(),
-  })
+  const pulse = claim(state.pulses, state.pulsePool)
+  pulse.id = state.pid
+  pulse.age = 0
+  pulse.radius = 0.45
+  pulse.pos.copy(origin)
   state.pid += 1
-  if (state.pulses.length > 4) state.pulses.shift()
-  state.waves.push({ id: state.wid, z: origin.z, life: 0 })
+  const wave = claim(state.waves, state.wavePool)
+  wave.id = state.wid
+  wave.z = origin.z
+  wave.life = 0
   state.wid += 1
-  if (state.waves.length > 3) state.waves.shift()
   maybeDecoy(state)
 }
 
 function burstSparks(state, origin, count) {
-  for (let n = 0; n < count; n += 1) {
+  const amount = state.lod ? Math.max(3, count >> 1) : count
+  for (let n = 0; n < amount; n += 1) {
     const spark = state.sparks[state.sparkCursor % SPARKS]
     state.sparkCursor += 1
     const angle = Math.random() * Math.PI * 2
@@ -305,12 +347,10 @@ function tripGlitch(state, callbacks) {
 }
 
 function rememberEcho(state) {
-  state.echoes.push({
-    z: state.z + 46,
-    wall: state.targetWall,
-    synced: false,
-  })
-  if (state.echoes.length > 8) state.echoes.shift()
+  const echo = claim(state.echoes, state.echoPool)
+  echo.z = state.z + 46
+  echo.wall = state.targetWall
+  echo.synced = false
 }
 
 function stepLoan(state, dt, callbacks) {
@@ -879,9 +919,23 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
   const { camera, size, gl } = useThree()
 
   useFrame((_, delta) => {
-    const dt = Math.min(0.033, delta)
+    const dt = delta > 0.2 ? 0 : Math.min(0.05, delta)
     const state = runtime.current
     const v = tmp.current
+    const frame = Math.max(delta, 0.001)
+    state.fpsSmooth += (1 / frame - state.fpsSmooth) * 0.08
+    state.fpsReport -= frame
+    if (state.fpsReport <= 0) {
+      state.fpsReport = 0.35
+      const shown = Math.round(state.fpsSmooth)
+      if (shown !== state.fpsShown) {
+        state.fpsShown = shown
+        callbacks.current.onFps?.(shown)
+      }
+      if (state.fpsSmooth < 46) state.lodHold = Math.min(1.4, state.lodHold + 0.35)
+      else state.lodHold = Math.max(0, state.lodHold - 0.35)
+      state.lod = state.lodHold > 0.7 ? 1 : 0
+    }
     state.time += dt
 
     if (active && state.runId !== runId) {
@@ -983,9 +1037,13 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
       if (immediate) {
         state.angle = state.targetWall * Math.PI * 0.5
         state.angleVel = 0
-        state.cooldown = 0.1
+        state.cooldown = 0.08
+        state.recoil = Math.max(state.recoil, 0.85)
       } else {
-        state.cooldown = 0.18
+        const aim = shortest(state.targetWall * Math.PI * 0.5, state.angle)
+        state.angleVel = Math.sign(aim || sign) * 8.4
+        state.cooldown = 0.12
+        state.recoil = Math.max(state.recoil, 0.5)
       }
       placeBall(state.z, state.angle, state.targetWall, v.pos)
       rememberEcho(state)
@@ -996,8 +1054,12 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
       pulseSound()
       vibrate(12)
     } else if (input.current.pending) {
-      input.current.pending = false
-      input.current.immediate = false
+      input.current.buffer -= dt
+      if (input.current.buffer <= 0) {
+        input.current.pending = false
+        input.current.immediate = false
+        input.current.buffer = 0
+      }
     }
 
     if (input.current.impulse) {
@@ -1035,10 +1097,9 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
     }
 
     const target = state.targetWall * Math.PI * 0.5
-    const diff = shortest(target, state.angle)
-    const accel = diff * OMEGA * OMEGA - 2 * OMEGA * state.angleVel
-    state.angleVel = Math.max(-9, Math.min(9, state.angleVel + accel * step))
-    state.angle += state.angleVel * step
+    const turned = integrateAngle(state.angle, state.angleVel, target, step)
+    state.angle = turned.angle
+    state.angleVel = turned.vel
 
     const cruise = Math.min(29, 13 + state.z * 0.011) * Math.min(1, 0.35 + state.age / 0.7)
     state.boost = Math.max(0, state.boost - dt * 1.4)
@@ -1192,6 +1253,7 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
       const points = (bestMult === 3 ? 40 : 18) * state.combo
       state.bonus += points
       bestSlot.flash = 1
+      emitPulse(state, v.pos)
       nearMissSound(bestMult)
       vibrate(18)
       burstSparks(state, v.pos, 8)
@@ -1203,7 +1265,9 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
       input.current.glitch = 0
       state.recoil = 1
       placeBall(state.z, state.angle, state.targetWall, v.pos)
+      emitPulse(state, v.pos)
       burstSparks(state, v.pos, 14)
+      pulseSound()
       tripGlitch(state, callbacks)
     }
     const externalRule = Number(input.current.rule) || 0
@@ -1312,23 +1376,21 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
     state.mood += (moodTarget - state.mood) * Math.min(1, dt * 1.7)
     state.strain = Math.max(0, state.strain - dt * 0.07)
     state.rhythm = 0.55 + drive * 1.35 + streak * 0.7 + (state.loan === 'repay' ? 1 : 0) + (state.surge > 0 ? 0.95 : 0)
-    const mood = {
-      mood: state.mood,
-      rhythm: state.rhythm,
-      strain: state.strain,
-      blindZ: state.blind.z,
-      blindLen: state.blind.len,
-      blindAmt: state.blind.on ? 0.86 : 0,
-    }
-    state.moodPack = mood
-    liveCamera(state, dt, focusing, v, {
-      drive,
-      threat: Math.min(1, threatScore),
-      dirx: threatX,
-      diry: threatY,
-      spike: false,
-      rule: input.current.rule,
-    })
+    const pack = state.moodPack
+    pack.mood = state.mood
+    pack.rhythm = state.rhythm
+    pack.strain = state.strain
+    pack.blindZ = state.blind.z
+    pack.blindLen = state.blind.len
+    pack.blindAmt = state.blind.on ? 0.86 : 0
+    const sig = state.signals
+    sig.drive = drive
+    sig.threat = Math.min(1, threatScore)
+    sig.dirx = threatX
+    sig.diry = threatY
+    sig.spike = false
+    sig.rule = input.current.rule
+    liveCamera(state, dt, focusing, v, sig)
     const loanFov = state.loan === 'slow' ? -11 : state.loan === 'repay' ? 10 : 0
     const heartFov = state.heart > 0 ? (state.heartFlash > 0.02 ? 6 : -8) : 0
     const surgeFov = state.surge > 0 ? 7 : 0
@@ -1559,10 +1621,9 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
       const positions = arcGeo.attributes.position.array
       const stride = 0.045
       for (let i = 0; i < ARC; i += 1) {
-        const turn = shortest(target, arcAngle)
-        const push = turn * OMEGA * OMEGA - 2 * OMEGA * arcVel
-        arcVel = Math.max(-9, Math.min(9, arcVel + push * stride))
-        arcAngle += arcVel * stride
+        const stepTurn = integrateAngle(arcAngle, arcVel, target, stride)
+        arcVel = stepTurn.vel
+        arcAngle = stepTurn.angle
         arcZ += arcSpeed * stride
         positions[i * 3] = Math.sin(arcAngle) * STICK
         positions[i * 3 + 1] = -Math.cos(arcAngle) * STICK
@@ -1574,7 +1635,8 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
     }
 
     const specks = speckGeo.attributes.position.array
-    for (let i = 0; i < SPECKS; i += 1) {
+    const speckStride = state.lod ? 2 : 1
+    for (let i = 0; i < SPECKS; i += speckStride) {
       specks[i * 3 + 2] -= speed * motion * (0.45 + (i % 5) * 0.09)
       if (state.rewind > 0) {
         if (specks[i * 3 + 2] > state.z + 78) specks[i * 3 + 2] -= 82
@@ -1922,8 +1984,8 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
   )
 }
 
-function WorldCanvas({ active, runId, input, styleRef, onScore, onCrash, onNearMiss, onGlitch, onEcho, onLoan, onDread, onTelemetry }) {
-  const callbacks = useRef({ onScore, onCrash, onNearMiss, onGlitch, onEcho, onLoan, onDread, onTelemetry })
+function WorldCanvas({ active, runId, input, styleRef, onScore, onCrash, onNearMiss, onGlitch, onEcho, onLoan, onDread, onTelemetry, onFps }) {
+  const callbacks = useRef({ onScore, onCrash, onNearMiss, onGlitch, onEcho, onLoan, onDread, onTelemetry, onFps })
   callbacks.current.onScore = onScore
   callbacks.current.onCrash = onCrash
   callbacks.current.onNearMiss = onNearMiss
@@ -1932,6 +1994,7 @@ function WorldCanvas({ active, runId, input, styleRef, onScore, onCrash, onNearM
   callbacks.current.onLoan = onLoan
   callbacks.current.onDread = onDread
   callbacks.current.onTelemetry = onTelemetry
+  callbacks.current.onFps = onFps
 
   return (
     <Canvas

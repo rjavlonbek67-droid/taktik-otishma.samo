@@ -4,8 +4,10 @@ import { LABEL } from './build.js'
 import { readBest, writeBest } from './game/constants.js'
 import World from './game/World.jsx'
 
-const SWIPE = 25
+const SWIPE_AXIS = 12
+const SWIPE_BIAS = 1.55
 const HOLD_MS = 140
+const BUFFER_S = 0.11
 
 export default function App() {
   const [phase, setPhase] = useState('menu')
@@ -23,6 +25,7 @@ export default function App() {
   const [loanLeft, setLoanLeft] = useState(0)
   const [tele, setTele] = useState(null)
   const [dread, setDread] = useState(null)
+  const [fps, setFps] = useState(0)
   const phaseRef = useRef(phase)
   const styleRef = useRef(style)
   const input = useRef({
@@ -34,6 +37,7 @@ export default function App() {
     rule: 0,
     glitch: 0,
     loan: false,
+    buffer: 0,
   })
   const pointers = useRef(new Set())
   const gesture = useRef(null)
@@ -61,6 +65,7 @@ export default function App() {
     input.current.pending = true
     input.current.sign = sign
     input.current.immediate = immediate
+    input.current.buffer = BUFFER_S
   }, [])
 
   const clearHold = useCallback(() => {
@@ -75,6 +80,7 @@ export default function App() {
     unlock()
     startDrone()
     input.current.pending = false
+    input.current.buffer = 0
     input.current.impulse = false
     input.current.loan = false
     setLoanPhase('idle')
@@ -221,10 +227,19 @@ export default function App() {
 
   useEffect(() => {
     const block = (event) => {
-      if (phaseRef.current === 'play') event.preventDefault()
+      if (phaseRef.current !== 'play') return
+      if (event.target?.closest?.('button')) return
+      event.preventDefault()
     }
-    window.addEventListener('touchmove', block, { passive: false })
-    return () => window.removeEventListener('touchmove', block)
+    const opts = { passive: false }
+    window.addEventListener('touchstart', block, opts)
+    window.addEventListener('touchmove', block, opts)
+    window.addEventListener('gesturestart', block, opts)
+    return () => {
+      window.removeEventListener('touchstart', block)
+      window.removeEventListener('touchmove', block)
+      window.removeEventListener('gesturestart', block)
+    }
   }, [])
 
   useEffect(() => {
@@ -280,7 +295,12 @@ export default function App() {
     if (!current || current.swiped || phaseRef.current !== 'play') return
     const dx = event.clientX - current.x
     const dy = event.clientY - current.y
-    if (Math.hypot(dx, dy) < SWIPE) return
+    const adx = Math.abs(dx)
+    const ady = Math.abs(dy)
+    const along = Math.max(adx, ady)
+    const across = Math.min(adx, ady)
+    if (along < SWIPE_AXIS) return
+    if (along < across * SWIPE_BIAS && along < 22) return
     current.swiped = true
     window.clearTimeout(holdTimer.current)
     if (current.held) {
@@ -331,6 +351,7 @@ export default function App() {
         onLoan={onLoan}
         onDread={onDread}
         onTelemetry={onTelemetry}
+        onFps={setFps}
       />
 
       <button
@@ -392,7 +413,7 @@ export default function App() {
       )}
       {phase === 'dead' && <div className="flash" />}
 
-      <div className="build">{LABEL}</div>
+      <div className="build">{LABEL}{fps > 0 ? ` · ${fps}` : ''}</div>
 
       {phase === 'menu' && (
         <div className="menu">
