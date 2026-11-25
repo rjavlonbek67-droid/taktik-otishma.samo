@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { armSigilAudio, releaseSigilAudio, sigilDraft, sigilEye, sigilHit } from './sigilAudio.js'
 
 const S = 'M70 24 H28 V46 H62 M28 60 H68 V86 H24'
 const B = 'M108 24 H156 M108 24 V86 M108 54 H132 M156 24 V40 M108 86 H160 M160 70 V86'
@@ -48,6 +49,11 @@ export default function KonturSigil({ mood = 'idle', strike = 0, hit = false }) 
     let seen = strikeRef.current
     let kick = 0
     let boomed = false
+    let draftStep = 0
+    let eyed = false
+    let heldAperture = 1
+    let gazeSign = 0
+    armSigilAudio()
     const tick = (now) => {
       const dt = Math.min(0.05, (now - last) / 1000)
       last = now
@@ -58,10 +64,28 @@ export default function KonturSigil({ mood = 'idle', strike = 0, hit = false }) 
       if (strikeRef.current !== seen) {
         seen = strikeRef.current
         kick = 0.32
+        sigilHit(soft)
       }
       if (!boomed && hitRef.current && time > 0.58) {
         boomed = true
         kick = 0.32
+        sigilHit(soft)
+      }
+      if (draftStep === 0 && time >= 0.04) {
+        draftStep = 1
+        sigilDraft(0, soft)
+      } else if (draftStep === 1 && time >= 0.14) {
+        draftStep = 2
+        sigilDraft(1, soft)
+      } else if (draftStep === 2 && time >= 0.22) {
+        draftStep = 3
+        sigilDraft(2, soft)
+      } else if (draftStep === 3 && time >= 0.34) {
+        draftStep = 4
+        sigilDraft(3, soft)
+      } else if (draftStep === 4 && time >= 0.48) {
+        draftStep = 5
+        sigilDraft(4, soft)
       }
       const axisU = time < 0.22 ? time / 0.22 : 1
       const letterU = time < 0.18 ? 0 : Math.min(1, (time - 0.18) / 0.27)
@@ -96,12 +120,31 @@ export default function KonturSigil({ mood = 'idle', strike = 0, hit = false }) 
       }
       inner.setAttribute('transform', `scale(1 ${aperture})`)
       const gaze = Math.sin(time * 0.85) * (state === 'surge' ? 2.2 : state === 'curse' ? 1.6 : 1.1)
+      if (time > 0.62) {
+        if (!eyed) {
+          eyed = true
+          heldAperture = aperture
+          gazeSign = gaze >= 0 ? 1 : -1
+        } else if (aperture !== heldAperture) {
+          sigilEye(aperture < heldAperture)
+          heldAperture = aperture
+        } else if (!soft) {
+          const sign = gaze > 0.35 ? 1 : gaze < -0.35 ? -1 : 0
+          if (sign !== 0 && sign !== gazeSign) {
+            sigilEye(false)
+            gazeSign = sign
+          }
+        }
+      }
       reticle.setAttribute('transform', `rotate(${time * spin + gaze * 4}) translate(${gaze} 0)`)
       pupil.setAttribute('x', String(-2.1 + gaze))
       raf = requestAnimationFrame(tick)
     }
     raf = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(raf)
+    return () => {
+      cancelAnimationFrame(raf)
+      releaseSigilAudio()
+    }
   }, [])
 
   return (
