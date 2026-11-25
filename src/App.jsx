@@ -3,6 +3,7 @@ import { finaleSting, focusSound, setMuted, startDrone, unlock } from './audio.j
 import { LABEL } from './build.js'
 import { readBest, writeBest } from './game/constants.js'
 import World from './game/World.jsx'
+import Blog from './blog/Blog.jsx'
 
 const FINALE_LINES = [
   "1000 DAN O'TDING — LEKIN OXIRI YO'Q",
@@ -354,8 +355,19 @@ export default function App() {
   }, [])
 
   useEffect(() => {
+    const reading = phase === 'blog'
+    document.documentElement.classList.toggle('is-read', reading)
+    document.body.classList.toggle('is-read', reading)
+    return () => {
+      document.documentElement.classList.remove('is-read')
+      document.body.classList.remove('is-read')
+    }
+  }, [phase])
+
+  useEffect(() => {
     const onKey = (event) => {
       if (event.repeat) return
+      if (phaseRef.current === 'blog') return
       if (event.code === 'Space' || event.code === 'KeyW' || event.code === 'ArrowRight') {
         event.preventDefault()
         queueFlip(1, event.code === 'ArrowRight')
@@ -380,7 +392,7 @@ export default function App() {
   }
 
   const onPointerDown = (event) => {
-    if (event.target.closest?.('button')) return
+    if (event.target.closest?.('button, .blog')) return
     if (phaseRef.current === 'play') event.preventDefault()
     const finger = takeFinger()
     if (!finger) return
@@ -476,7 +488,7 @@ export default function App() {
   return (
     <div
       ref={appRef}
-      className={`app${phase === 'play' ? ' is-play' : ''}${focusUi ? ' is-focus' : ''}${loanPhase === 'slow' ? ' is-loan' : ''}${loanPhase === 'repay' ? ' is-repay' : ''}${dread === 'heart' ? ' is-heart' : ''}${dread === 'rewind' ? ' is-rewind' : ''}${dread === 'surge' ? ' is-surge' : ''}${abyss?.hot ? ' is-abyss' : ''}${cursed ? ' is-curse' : ''}`}
+      className={`app${phase === 'play' ? ' is-play' : ''}${phase === 'blog' ? ' is-read' : ''}${focusUi ? ' is-focus' : ''}${loanPhase === 'slow' ? ' is-loan' : ''}${loanPhase === 'repay' ? ' is-repay' : ''}${dread === 'heart' ? ' is-heart' : ''}${dread === 'rewind' ? ' is-rewind' : ''}${dread === 'surge' ? ' is-surge' : ''}${abyss?.hot ? ' is-abyss' : ''}${cursed ? ' is-curse' : ''}`}
       onContextMenu={(event) => event.preventDefault()}
     >
       <World
@@ -616,8 +628,19 @@ export default function App() {
           >
             BOSHLASH
           </button>
+          <button
+            className="blog-link"
+            type="button"
+            onPointerDown={(event) => {
+              event.stopPropagation()
+              setPhase('blog')
+            }}
+          >
+            YOZUV
+          </button>
         </div>
       )}
+      {phase === 'blog' && <Blog onClose={() => setPhase('menu')} />}
     </div>
   )
 }
