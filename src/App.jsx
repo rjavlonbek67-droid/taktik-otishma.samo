@@ -4,6 +4,7 @@ import { LABEL } from './build.js'
 import { readBest, writeBest } from './game/constants.js'
 import World from './game/World.jsx'
 import Blog from './blog/Blog.jsx'
+import ScreenFx from './fx/ScreenFx.jsx'
 
 const FINALE_LINES = [
   "1000 DAN O'TDING — LEKIN OXIRI YO'Q",
@@ -47,6 +48,8 @@ export default function App() {
   const [tremorCue, setTremorCue] = useState(false)
   const [cursed, setCursed] = useState(false)
   const [finale, setFinale] = useState(null)
+  const [launch, setLaunch] = useState(false)
+  const launchTimer = useRef(0)
   const phaseRef = useRef(phase)
   const styleRef = useRef(style)
   const input = useRef({
@@ -145,6 +148,17 @@ export default function App() {
     setRunId((value) => value + 1)
     setPhase('play')
   }, [clearHold])
+
+  const begin = (event) => {
+    event.stopPropagation()
+    if (launchTimer.current) return
+    setLaunch(true)
+    launchTimer.current = window.setTimeout(() => {
+      launchTimer.current = 0
+      setLaunch(false)
+      start()
+    }, 260)
+  }
 
   const onCrash = useCallback((finalScore, passed) => {
     clearHold()
@@ -573,34 +587,42 @@ export default function App() {
           {loanLeft > 0 ? loanLeft.toFixed(0) : 'QARZ'}
         </button>
       )}
-      {phase === 'dead' && <div className="flash" />}
+      {phase === 'dead' && (
+        <>
+          <ScreenFx mode="dead" />
+          <div className="flash" />
+        </>
+      )}
       {phase === 'finale' && finale && (
         <div
           className="finale"
           onPointerDown={(event) => event.stopPropagation()}
         >
-          <p className="finale-kicker">1000+ DAHSHAT YAKUNI</p>
-          <h1>{finale.line}</h1>
-          <div className="finale-stats">
-            <div>
-              <span>BALL</span>
-              <b>{finale.score}</b>
+          <ScreenFx mode="finale" />
+          <div className="finale-body">
+            <p className="finale-kicker">1000+ DAHSHAT YAKUNI</p>
+            <h1>{finale.line}</h1>
+            <div className="finale-stats">
+              <div>
+                <span>BALL</span>
+                <b>{finale.score}</b>
+              </div>
+              <div>
+                <span>1000+</span>
+                <b>+{finale.over}</b>
+              </div>
             </div>
-            <div>
-              <span>1000+</span>
-              <b>+{finale.over}</b>
-            </div>
+            <button
+              className="start"
+              type="button"
+              onPointerDown={(event) => {
+                event.stopPropagation()
+                start()
+              }}
+            >
+              QAYTA
+            </button>
           </div>
-          <button
-            className="start"
-            type="button"
-            onPointerDown={(event) => {
-              event.stopPropagation()
-              start()
-            }}
-          >
-            QAYTA
-          </button>
         </div>
       )}
 
@@ -608,6 +630,11 @@ export default function App() {
 
       {phase === 'menu' && (
         <div className="menu">
+          <ScreenFx mode={launch ? 'launch' : 'menu'} />
+          <div className="mark">
+            <b>SBP</b>
+            <small>KONTUR</small>
+          </div>
           <div className="stats">
             <div>
               <span>BALL</span>
@@ -621,10 +648,7 @@ export default function App() {
           <button
             className="start"
             type="button"
-            onPointerDown={(event) => {
-              event.stopPropagation()
-              start()
-            }}
+            onPointerDown={begin}
           >
             BOSHLASH
           </button>
