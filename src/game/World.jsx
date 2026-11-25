@@ -25,6 +25,7 @@ import {
   surgeSound,
   vibrate,
 } from '../audio.js'
+import { restPressure, syncPressure } from '../audioPressure.js'
 import { COLORS, PLAYER_R, POOL, STICK, WALL } from './constants.js'
 import { buildTunnelGeometry, createTunnelMaterial, syncTunnel } from './tunnel.js'
 import { ABYSS_TINT, stepAbyss } from './abyss.js'
@@ -1009,6 +1010,7 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
     const playing = active && state.runId === runId && state.alive
 
     if (!playing) {
+      restPressure()
       const idle = state.time
       if (tunnelRef.current) tunnelRef.current.position.z = -((idle * 5) % 8)
       placeBall(0, Math.sin(idle * 0.35) * 0.04, 0, v.pos)
@@ -1192,6 +1194,16 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
       state.rewind > 0 ? 6 : Math.abs(speed),
       state.loan === 'repay' ? false : (focusing || state.loan === 'slow' || state.rewind > 0),
     )
+    syncPressure(
+      state.z * 0.45 + state.bonus,
+      Math.abs(speed),
+      state.surge,
+      state.abyssStage,
+      state.mirage,
+      state.witness.on ? Math.max(state.abyssWatch, 0.72) : state.abyssWatch,
+      state.heart,
+      dt,
+    )
 
     while (state.nextSpawn < state.z + 95) spawnGate(state)
 
@@ -1246,6 +1258,7 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
       }
       crashSound()
       stopDrone()
+      restPressure()
       vibrate(48)
       callbacks.current.onCrash(crashedScore)
       return

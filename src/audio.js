@@ -130,6 +130,12 @@ export function unlock() {
   if (c && c.state !== 'running') c.resume()
 }
 
+export function audioBus() {
+  const c = getCtx()
+  if (!c || !master) return null
+  return { ctx: c, master }
+}
+
 export function vibrate(ms) {
   try {
     navigator.vibrate?.(ms)
