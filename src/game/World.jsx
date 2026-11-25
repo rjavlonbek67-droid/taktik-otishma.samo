@@ -1273,7 +1273,7 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
       stopDrone()
       restPressure()
       vibrate(48)
-      callbacks.current.onCrash(crashedScore)
+      callbacks.current.onCrash(crashedScore, state.curse.on ? 1 : 0)
       return
     }
 

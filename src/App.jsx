@@ -1,9 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { focusSound, setMuted, startDrone, unlock } from './audio.js'
+import { finaleSting, focusSound, setMuted, startDrone, unlock } from './audio.js'
 import { LABEL } from './build.js'
 import { readBest, writeBest } from './game/constants.js'
 import World from './game/World.jsx'
 
+const FINALE_LINES = [
+  "1000 DAN O'TDING — LEKIN OXIRI YO'Q",
+  'CHEGARA BUZILDI, LEKIN SEN QOLDING',
+  "1000+ DAN KEYIN HAM YOL YOPIQ",
+]
 const HOLD_MS = 140
 const SWIPE_FAST = 12
 const SWIPE_FIRM = 24
@@ -40,6 +45,7 @@ export default function App() {
   const [abyss, setAbyss] = useState(null)
   const [tremorCue, setTremorCue] = useState(false)
   const [cursed, setCursed] = useState(false)
+  const [finale, setFinale] = useState(null)
   const phaseRef = useRef(phase)
   const styleRef = useRef(style)
   const input = useRef({
@@ -132,18 +138,34 @@ export default function App() {
     setAbyss(null)
     setTremorCue(false)
     setCursed(false)
+    setFinale(null)
     setScore(0)
     setMiss(null)
     setRunId((value) => value + 1)
     setPhase('play')
   }, [clearHold])
 
-  const onCrash = useCallback((finalScore) => {
+  const onCrash = useCallback((finalScore, passed) => {
     clearHold()
     remember(finalScore)
-    setPhase('dead')
     setDread(null)
     window.clearTimeout(crashTimer.current)
+    if (passed) {
+      const over = Math.max(0, finalScore - 1000)
+      setFinale({
+        score: finalScore,
+        over,
+        line: FINALE_LINES[finalScore % FINALE_LINES.length],
+      })
+      setPhase('finale')
+      setGlitch({ id: performance.now() })
+      window.clearTimeout(glitchTimer.current)
+      glitchTimer.current = window.setTimeout(() => setGlitch(null), 280)
+      finaleSting()
+      return
+    }
+    setFinale(null)
+    setPhase('dead')
     crashTimer.current = window.setTimeout(() => setPhase('menu'), 720)
   }, [clearHold, remember])
 
@@ -540,6 +562,35 @@ export default function App() {
         </button>
       )}
       {phase === 'dead' && <div className="flash" />}
+      {phase === 'finale' && finale && (
+        <div
+          className="finale"
+          onPointerDown={(event) => event.stopPropagation()}
+        >
+          <p className="finale-kicker">1000+ DAHSHAT YAKUNI</p>
+          <h1>{finale.line}</h1>
+          <div className="finale-stats">
+            <div>
+              <span>BALL</span>
+              <b>{finale.score}</b>
+            </div>
+            <div>
+              <span>1000+</span>
+              <b>+{finale.over}</b>
+            </div>
+          </div>
+          <button
+            className="start"
+            type="button"
+            onPointerDown={(event) => {
+              event.stopPropagation()
+              start()
+            }}
+          >
+            QAYTA
+          </button>
+        </div>
+      )}
 
       <div className="build">{LABEL}{fps > 0 ? ` · ${fps}` : ''}</div>
 

@@ -731,3 +731,18 @@ export function curseSting() {
   })
   wetTone({ type: 'sine', from: 96, to: 42, dur: 0.48, peak: 0.055 })
 }
+
+export function finaleSting() {
+  unlock()
+  burst({
+    type: 'sine',
+    from: 58,
+    to: 26,
+    dur: 0.55,
+    peak: 0.14,
+    filterFreq: 140,
+    filterTo: 36,
+  })
+  wetTone({ type: 'triangle', from: 74, to: 32, dur: 0.62, peak: 0.05 })
+  noiseHit(0.22, 70, 0.35, 0.05)
+}
