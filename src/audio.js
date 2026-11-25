@@ -425,6 +425,48 @@ export function clickShiftSound() {
   })
 }
 
+export function abyssSting() {
+  unlock()
+  burst({
+    type: 'sawtooth',
+    from: 70,
+    to: 34,
+    dur: 0.28,
+    peak: 0.1,
+    filterFreq: 220,
+    filterTo: 60,
+  })
+  wetTone({ type: 'sine', from: 180, to: 48, dur: 0.36, peak: 0.05 })
+}
+
+export function mirageHum() {
+  unlock()
+  wetTone({ type: 'sine', from: 520, to: 880, dur: 0.42, peak: 0.045 })
+  burst({
+    type: 'triangle',
+    from: 660,
+    to: 990,
+    dur: 0.2,
+    peak: 0.03,
+    filterFreq: 1800,
+    filterTo: 700,
+  })
+}
+
+export function mirageSnap() {
+  unlock()
+  burst({
+    type: 'square',
+    from: 120,
+    to: 28,
+    dur: 0.18,
+    peak: 0.16,
+    filterFreq: 360,
+    filterTo: 50,
+  })
+  noiseHit(0.14, 140, 0.7, 0.08)
+}
+
 export function rewindSound() {
   unlock()
   burst({

@@ -340,6 +340,28 @@ body,
   z-index: 3;
 }
 
+.abyss {
+  position: absolute;
+  top: calc(env(safe-area-inset-top) + 76px);
+  left: 0;
+  right: 0;
+  z-index: 2;
+  text-align: center;
+  pointer-events: none;
+  color: #9fb0c4;
+  font-size: 0.68rem;
+  letter-spacing: 0.42em;
+}
+
+.abyss.is-hot {
+  color: #d5e4ff;
+  text-shadow: 0 0 14px #6d8cff;
+}
+
+.app.is-abyss .hud {
+  text-shadow: 0 0 16px #6d8cff;
+}
+
 .flash {
   position: absolute;
   inset: 0;

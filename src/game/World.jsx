@@ -27,6 +27,7 @@ import {
 } from '../audio.js'
 import { COLORS, PLAYER_R, POOL, STICK, WALL } from './constants.js'
 import { buildTunnelGeometry, createTunnelMaterial, syncTunnel } from './tunnel.js'
+import { ABYSS_TINT, stepAbyss } from './abyss.js'
 
 const HALF_THIN = 0.26
 const HALF_WIDE = 0.85
@@ -228,6 +229,17 @@ function createRuntime() {
     hitStop: 0,
     arrow: 0,
     arrowSign: 1,
+    abyssStage: 0,
+    abyssMul: 1,
+    abyssPush: 0,
+    abyssCold: 0,
+    abyssGlitch: 0,
+    abyssWatch: 0,
+    abyssCd: 9,
+    abyssPulse: 2.2,
+    abyssPing: 0,
+    abyssSnap: 0,
+    mirage: 0,
     lodApplied: -1,
   }
 }
@@ -304,6 +316,17 @@ function resetRuntime(state) {
   state.fovKick = 0
   state.hitStop = 0
   state.arrow = 0
+  state.abyssStage = 0
+  state.abyssMul = 1
+  state.abyssPush = 0
+  state.abyssCold = 0
+  state.abyssGlitch = 0
+  state.abyssWatch = 0
+  state.abyssCd = 9
+  state.abyssPulse = 2.2
+  state.abyssPing = 0
+  state.abyssSnap = 0
+  state.mirage = 0
   for (const decoy of state.decoys) decoy.on = false
   state.gates.length = 0
   state.pulses.length = 0
@@ -765,6 +788,7 @@ function liveCamera(state, dt, focusing, v, signals) {
   if (state.loan === 'slow') state.suspicion = Math.max(state.suspicion, 0.84)
   if (state.loan === 'repay') state.suspicion = Math.max(state.suspicion, 0.96)
   if (state.surge > 0) state.suspicion = Math.max(state.suspicion, 0.92)
+  if (state.abyssWatch > 0) state.suspicion = Math.max(state.suspicion, state.abyssWatch)
   const swayTarget = (focusing || state.loan === 'slow') ? 0 : (state.loan === 'repay' ? 0.4 : (state.surge > 0 ? 0.22 : 1))
   state.sway += (swayTarget - state.sway) * Math.min(1, dt * (focusing || debt ? 14 : 2.6))
   state.breath += dt * (0.82 + signals.drive * 0.4) * (0.12 + state.sway * 0.88)
@@ -1156,6 +1180,8 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
     if (state.loan === 'repay') speed *= 1.72
     if (state.surge > 0) speed *= 1.36
     if (signed < 0) speed = -Math.abs(cruise) * 0.58
+    stepAbyss(state, dt, callbacks)
+    if (signed > 0 && state.abyssMul > 1) speed *= state.abyssMul
     state.prevZ = state.z
     const motion = state.rewind > 0 ? dt : step
     const stopping = state.hitStop > 0
@@ -1181,6 +1207,16 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
       emitPulse(state, v.pos)
       burstSparks(state, v.pos, 10)
       state.surgeEvent = null
+    }
+    if (state.abyssSnap) {
+      state.abyssSnap = 0
+      emitPulse(state, v.pos)
+      burstSparks(state, v.pos, state.lod ? 6 : 12)
+      tripGlitch(state, callbacks)
+    }
+    if (state.abyssPing) {
+      state.abyssPing = 0
+      emitPulse(state, v.pos)
     }
     let hit = false
     const sweepLo = Math.min(state.prevZ, state.z)
@@ -1361,6 +1397,7 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
       if (wave.life > 1.55) state.waves.splice(i, 1)
     }
     state.glitch = Math.max(0, state.glitch - dt / 0.18)
+    if (state.abyssGlitch > 0) state.glitch = Math.max(state.glitch, state.abyssGlitch)
 
     for (const slot of state.slots) {
       if (!slot.active) continue
@@ -1427,6 +1464,7 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
     state.mood += (moodTarget - state.mood) * Math.min(1, dt * 1.7)
     state.strain = Math.max(0, state.strain - dt * 0.07)
     state.rhythm = 0.55 + drive * 1.35 + streak * 0.7 + (state.loan === 'repay' ? 1 : 0) + (state.surge > 0 ? 0.95 : 0)
+    state.rhythm += state.abyssPush || 0
     const pack = state.moodPack
     pack.mood = state.mood
     pack.rhythm = state.rhythm
@@ -1446,7 +1484,8 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
     const heartFov = state.heart > 0 ? (state.heartFlash > 0.02 ? 6 : -8) : 0
     const surgeFov = state.surge > 0 ? 7 : 0
     const kickFov = state.fovKick > 0 ? 6 * (state.fovKick / 0.032) : 0
-    const fov = Math.min(98, (size.width < size.height ? 84 : 68) + drive * 14 - (focusing ? 8 : 0) + loanFov + heartFov + surgeFov + kickFov + state.recoil * 3.2)
+    const abyssFov = (state.abyssCold || 0) * 3
+    const fov = Math.min(98, (size.width < size.height ? 84 : 68) + drive * 14 - (focusing ? 8 : 0) + loanFov + heartFov + surgeFov + kickFov + abyssFov + state.recoil * 3.2)
     if (Math.abs(camera.fov - fov) > 0.12) {
       camera.fov = fov
       camera.updateProjectionMatrix()
@@ -1474,6 +1513,7 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
     }
     v.moodColor.set(state.strain > state.mood ? 0x12010c : 0x001016)
     v.moodColor.multiplyScalar(0.35 + state.mood * 0.2)
+    if (state.abyssCold > 0) v.moodColor.lerp(ABYSS_TINT, state.abyssCold)
     gl.setClearColor(v.moodColor)
     if (state.heart > 0 && state.heartFlash < 0.04) v.moodColor.set(0x000000)
     syncTunnel(tunnel.rails, state.pulses, state.z, v.gravity, state.scanTime, state.moodPack)
@@ -2074,8 +2114,8 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
   )
 }
 
-function WorldCanvas({ active, runId, input, styleRef, onScore, onCrash, onNearMiss, onGlitch, onEcho, onLoan, onDread, onTelemetry, onFps }) {
-  const callbacks = useRef({ onScore, onCrash, onNearMiss, onGlitch, onEcho, onLoan, onDread, onTelemetry, onFps })
+function WorldCanvas({ active, runId, input, styleRef, onScore, onCrash, onNearMiss, onGlitch, onEcho, onLoan, onDread, onTelemetry, onFps, onAbyss }) {
+  const callbacks = useRef({ onScore, onCrash, onNearMiss, onGlitch, onEcho, onLoan, onDread, onTelemetry, onFps, onAbyss })
   callbacks.current.onScore = onScore
   callbacks.current.onCrash = onCrash
   callbacks.current.onNearMiss = onNearMiss
@@ -2085,6 +2125,7 @@ function WorldCanvas({ active, runId, input, styleRef, onScore, onCrash, onNearM
   callbacks.current.onDread = onDread
   callbacks.current.onTelemetry = onTelemetry
   callbacks.current.onFps = onFps
+  callbacks.current.onAbyss = onAbyss
 
   return (
     <Canvas

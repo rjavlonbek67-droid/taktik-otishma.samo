@@ -1,3 +1,3 @@
-export const BUILD = 'v2.6-hyper-feel'
-export const CACHE = 'oyin-sbp-v2.6-hyper-feel'
-export const LABEL = 'SBP v2.6 • HYPER-FEEL'
+export const BUILD = 'v2.7-abyss-1000'
+export const CACHE = 'oyin-sbp-v2.7-abyss-1000'
+export const LABEL = 'SBP v2.7 • ABYSS-1000'

@@ -37,6 +37,7 @@ export default function App() {
   const [tele, setTele] = useState(null)
   const [dread, setDread] = useState(null)
   const [fps, setFps] = useState(0)
+  const [abyss, setAbyss] = useState(null)
   const phaseRef = useRef(phase)
   const styleRef = useRef(style)
   const input = useRef({
@@ -126,6 +127,7 @@ export default function App() {
     setUltra(null)
     setTele(null)
     setDread(null)
+    setAbyss(null)
     setScore(0)
     setMiss(null)
     setRunId((value) => value + 1)
@@ -184,6 +186,21 @@ export default function App() {
       setLoanLeft(8)
     }
   }, [flashUltra])
+
+  const onAbyss = useCallback((info) => {
+    const marks = ['', 'I', 'II', 'III', 'IV', 'V', '1000']
+    if (info.phase === 'stage') {
+      setAbyss({
+        text: info.stage >= 6 ? '1000' : `ABYSS ${marks[info.stage]}`,
+        hot: info.stage >= 4,
+      })
+      if (info.stage >= 4) flashUltra('debt', 'ABYSS', marks[info.stage], 900)
+    } else if (info.phase === 'mirage') {
+      showNote('OCHIQ YOL', 800)
+    } else if (info.phase === 'snap') {
+      flashUltra('hit', 'SAROB', 'YOL YOPIQ', 720)
+    }
+  }, [flashUltra, showNote])
 
   const onDread = useCallback((info) => {
     if (info.phase === 'fracture') {
@@ -414,7 +431,7 @@ export default function App() {
   return (
     <div
       ref={appRef}
-      className={`app${phase === 'play' ? ' is-play' : ''}${focusUi ? ' is-focus' : ''}${loanPhase === 'slow' ? ' is-loan' : ''}${loanPhase === 'repay' ? ' is-repay' : ''}${dread === 'heart' ? ' is-heart' : ''}${dread === 'rewind' ? ' is-rewind' : ''}${dread === 'surge' ? ' is-surge' : ''}`}
+      className={`app${phase === 'play' ? ' is-play' : ''}${focusUi ? ' is-focus' : ''}${loanPhase === 'slow' ? ' is-loan' : ''}${loanPhase === 'repay' ? ' is-repay' : ''}${dread === 'heart' ? ' is-heart' : ''}${dread === 'rewind' ? ' is-rewind' : ''}${dread === 'surge' ? ' is-surge' : ''}${abyss?.hot ? ' is-abyss' : ''}`}
       onContextMenu={(event) => event.preventDefault()}
     >
       <World
@@ -431,6 +448,7 @@ export default function App() {
         onDread={onDread}
         onTelemetry={onTelemetry}
         onFps={setFps}
+        onAbyss={onAbyss}
       />
 
       <button
@@ -451,6 +469,9 @@ export default function App() {
       </button>
 
       {phase === 'play' && <div className="hud">{score}</div>}
+      {phase === 'play' && abyss && (
+        <div className={abyss.hot ? 'abyss is-hot' : 'abyss'}>{abyss.text}</div>
+      )}
       {phase === 'play' && tele && (
         <div className={tele.lie ? 'tele is-lie' : 'tele'}>
           <span>TEZ<b>{tele.speed}</b></span>
