@@ -1,3 +1,3 @@
-export const BUILD = 'v3.3-fx-surge'
-export const CACHE = 'oyin-sbp-v3.3-fx-surge'
-export const LABEL = 'SBP v3.3 • FX-SURGE'
+export const BUILD = 'v3.4-sync-audio-fx'
+export const CACHE = 'oyin-sbp-v3.4-sync-audio-fx'
+export const LABEL = 'SBP v3.4 • SYNC-AUDIO-FX'

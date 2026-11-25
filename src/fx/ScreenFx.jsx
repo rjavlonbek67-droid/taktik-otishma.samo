@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { pulseFx, stopFx } from './fxAudio.js'
 
 const CAP = 80
 const BARS = 5
@@ -41,6 +42,7 @@ export default function ScreenFx({ mode }) {
     let glitchIn = sharp ? 0 : 0.35
     let glitchOut = 0
     let lit = false
+    let announced = false
     const resize = () => {
       const width = canvas.clientWidth || 1
       const height = canvas.clientHeight || 1
@@ -113,6 +115,11 @@ export default function ScreenFx({ mode }) {
           }
         }
         if (splitRef.current) splitRef.current.style.opacity = hard ? '0.95' : '0.5'
+        if (!announced && (hard || mode === 'dead')) {
+          announced = true
+          pulseFx(hard ? 'finale' : 'dead')
+        } else if (mode === 'menu' && fps >= 50) pulseFx('menu')
+        else if (hard && fps >= 50) pulseFx('tick')
       } else if (lit && glitchOut <= 0) {
         lit = false
         const bars = barsRef.current
@@ -127,9 +134,15 @@ export default function ScreenFx({ mode }) {
       raf = requestAnimationFrame(tick)
     }
     raf = requestAnimationFrame(tick)
+    const onHide = () => {
+      if (document.hidden) stopFx()
+    }
+    document.addEventListener('visibilitychange', onHide)
     return () => {
       cancelAnimationFrame(raf)
       window.removeEventListener('resize', resize)
+      document.removeEventListener('visibilitychange', onHide)
+      stopFx()
     }
   }, [mode])
 

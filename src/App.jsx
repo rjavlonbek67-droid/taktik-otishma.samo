@@ -5,6 +5,7 @@ import { readBest, writeBest } from './game/constants.js'
 import World from './game/World.jsx'
 import Blog from './blog/Blog.jsx'
 import ScreenFx from './fx/ScreenFx.jsx'
+import { pulseFx } from './fx/fxAudio.js'
 
 const FINALE_LINES = [
   "1000 DAN O'TDING — LEKIN OXIRI YO'Q",
@@ -152,7 +153,9 @@ export default function App() {
   const begin = (event) => {
     event.stopPropagation()
     if (launchTimer.current) return
+    const ready = unlock()
     setLaunch(true)
+    Promise.resolve(ready).then(() => pulseFx('launch'))
     launchTimer.current = window.setTimeout(() => {
       launchTimer.current = 0
       setLaunch(false)

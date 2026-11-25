@@ -127,13 +127,20 @@ function noiseHit(dur, freq, q, peak) {
 
 export function unlock() {
   const c = getCtx()
-  if (c && c.state !== 'running') c.resume()
+  if (!c) return Promise.resolve()
+  if (c.state !== 'running') return c.resume().catch(() => {})
+  return Promise.resolve()
 }
 
 export function audioBus() {
   const c = getCtx()
   if (!c || !master) return null
   return { ctx: c, master }
+}
+
+export function fxAllowed() {
+  if (!ctx || !master || muted) return false
+  return ctx.state === 'running'
 }
 
 export function vibrate(ms) {
