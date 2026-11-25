@@ -403,6 +403,43 @@ export function debtClearSound() {
   })
 }
 
+export function rewindSound() {
+  unlock()
+  burst({
+    type: 'sawtooth',
+    from: 240,
+    to: 36,
+    dur: 1.15,
+    peak: 0.1,
+    filterFreq: 1400,
+    filterTo: 70,
+  })
+  wetTone({ type: 'sine', from: 520, to: 48, dur: 1.25, peak: 0.07 })
+  noiseHit(0.4, 180, 0.5, 0.05)
+}
+
+export function heartSound() {
+  unlock()
+  burst({
+    type: 'sine',
+    from: 58,
+    to: 28,
+    dur: 0.16,
+    peak: 0.22,
+    filterFreq: 120,
+    filterTo: 40,
+  })
+  burst({
+    type: 'triangle',
+    from: 92,
+    to: 40,
+    dur: 0.1,
+    peak: 0.05,
+    filterFreq: 240,
+    filterTo: 60,
+  })
+}
+
 export function repaySound() {
   unlock()
   burst({

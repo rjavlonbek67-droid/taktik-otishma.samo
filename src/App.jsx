@@ -21,6 +21,8 @@ export default function App() {
   const [ultra, setUltra] = useState(null)
   const [loanPhase, setLoanPhase] = useState('idle')
   const [loanLeft, setLoanLeft] = useState(0)
+  const [tele, setTele] = useState(null)
+  const [dread, setDread] = useState(null)
   const phaseRef = useRef(phase)
   const styleRef = useRef(style)
   const input = useRef({
@@ -78,6 +80,9 @@ export default function App() {
     setLoanPhase('idle')
     setLoanLeft(0)
     setNote(null)
+    setUltra(null)
+    setTele(null)
+    setDread(null)
     setScore(0)
     setMiss(null)
     setRunId((value) => value + 1)
@@ -88,6 +93,7 @@ export default function App() {
     clearHold()
     remember(finalScore)
     setPhase('dead')
+    setDread(null)
     window.clearTimeout(crashTimer.current)
     crashTimer.current = window.setTimeout(() => setPhase('menu'), 720)
   }, [clearHold, remember])
@@ -135,6 +141,24 @@ export default function App() {
       setLoanLeft(8)
     }
   }, [flashUltra])
+
+  const onDread = useCallback((info) => {
+    if (info.phase === 'fracture') {
+      setDread('rewind')
+      flashUltra('hit', 'UZILISH', 'XOTIRA', 1200)
+    } else if (info.phase === 'fracture-end') {
+      setDread((current) => (current === 'rewind' ? null : current))
+    } else if (info.phase === 'heart') {
+      setDread('heart')
+      flashUltra('debt', 'QORONG‘U', 'YURAK', 900)
+    } else if (info.phase === 'heart-end') {
+      setDread((current) => (current === 'heart' ? null : current))
+    }
+  }, [flashUltra])
+
+  const onTelemetry = useCallback((info) => {
+    setTele(info)
+  }, [])
 
   const requestLoan = useCallback(() => {
     if (phaseRef.current !== 'play') return
@@ -272,7 +296,7 @@ export default function App() {
 
   return (
     <div
-      className={`${phase === 'play' ? 'app is-play' : 'app'}${focusUi ? ' is-focus' : ''}${loanPhase === 'slow' ? ' is-loan' : ''}${loanPhase === 'repay' ? ' is-repay' : ''}`}
+      className={`app${phase === 'play' ? ' is-play' : ''}${focusUi ? ' is-focus' : ''}${loanPhase === 'slow' ? ' is-loan' : ''}${loanPhase === 'repay' ? ' is-repay' : ''}${dread === 'heart' ? ' is-heart' : ''}${dread === 'rewind' ? ' is-rewind' : ''}`}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
@@ -290,6 +314,8 @@ export default function App() {
         onGlitch={onGlitch}
         onEcho={onEcho}
         onLoan={onLoan}
+        onDread={onDread}
+        onTelemetry={onTelemetry}
       />
 
       <button
@@ -310,6 +336,15 @@ export default function App() {
       </button>
 
       {phase === 'play' && <div className="hud">{score}</div>}
+      {phase === 'play' && tele && (
+        <div className={tele.lie ? 'tele is-lie' : 'tele'}>
+          <span>TEZ<b>{tele.speed}</b></span>
+          <span>MASOFA<b>{tele.dist}</b></span>
+          <span>SIGNAL<b>{tele.signal}</b></span>
+          <span>{tele.warn}</span>
+          {tele.lie && <i>YOLG‘ON</i>}
+        </div>
+      )}
       {miss && (
         <div key={miss.id} className="near" data-mult={miss.mult}>
           NEAR MISS +{miss.points}

@@ -266,6 +266,56 @@ body {
   pointer-events: none;
 }
 
+.tele {
+  position: absolute;
+  top: calc(env(safe-area-inset-top) + 52px);
+  left: 0;
+  right: 0;
+  z-index: 2;
+  display: flex;
+  justify-content: center;
+  gap: clamp(8px, 2.4vw, 16px);
+  pointer-events: none;
+  color: rgba(190, 248, 255, 0.7);
+  font-size: clamp(0.58rem, 1.8vw, 0.68rem);
+  letter-spacing: 0.14em;
+}
+
+.tele b {
+  margin-left: 0.35em;
+  color: #fff;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.tele.is-lie b,
+.tele.is-lie span:nth-child(4) {
+  color: #ff4d6a;
+}
+
+.tele i {
+  color: #ff2bd6;
+  font-style: normal;
+  letter-spacing: 0.22em;
+}
+
+.app.is-heart::after,
+.app.is-rewind::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+}
+
+.app.is-heart::after {
+  background: radial-gradient(circle at 50% 58%, transparent 18%, rgba(0, 0, 0, 0.78) 80%);
+}
+
+.app.is-rewind::after {
+  background: linear-gradient(180deg, rgba(255, 43, 214, 0.16), transparent 28%, transparent 72%, rgba(0, 243, 255, 0.14));
+}
+
 .flash {
   position: absolute;
   inset: 0;

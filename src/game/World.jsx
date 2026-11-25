@@ -10,11 +10,13 @@ import {
   echoWarnSound,
   gravitySound,
   impulseSound,
+  heartSound,
   loanSound,
   nearMissSound,
   passSound,
   pulseSound,
   repaySound,
+  rewindSound,
   setDrive,
   stopDrone,
   vibrate,
@@ -149,6 +151,22 @@ function createRuntime() {
     mood: 0.35,
     strain: 0,
     rhythm: 1,
+    rewind: 0,
+    rewindCd: 5,
+    heart: 0,
+    heartCd: 9,
+    heartGap: 0,
+    heartFlash: 0,
+    lie: 0,
+    lieCd: 2.5,
+    lieClock: 7,
+    hudTick: 0,
+    fakeSpeed: 0,
+    fakeDist: 0,
+    fakeSignal: 0,
+    fakeWarn: 'SOKIN',
+    scanTime: 0,
+    witness: { on: false, wall: 0, z: 0, life: 0, cd: 3.5 },
   }
 }
 
@@ -195,6 +213,20 @@ function resetRuntime(state) {
   state.mood = 0.35
   state.strain = 0
   state.rhythm = 1
+  state.rewind = 0
+  state.rewindCd = 5
+  state.heart = 0
+  state.heartCd = 9
+  state.heartGap = 0
+  state.heartFlash = 0
+  state.lie = 0
+  state.lieCd = 2.5
+  state.lieClock = 7
+  state.hudTick = 0
+  state.scanTime = 0
+  state.witness.on = false
+  state.witness.life = 0
+  state.witness.cd = 3.5
   state.gates.length = 0
   state.pulses.length = 0
   state.waves.length = 0
@@ -307,6 +339,169 @@ function playLoanEvent(state, callbacks, origin) {
     state.strain = Math.min(1, state.strain + 0.25)
   }
   state.loanEvent = null
+}
+
+function dreadAhead(state, v, reach) {
+  let closest = 99
+  for (const slot of state.slots) {
+    if (!slot.active || slot.wall !== state.targetWall) continue
+    const ahead = slot.z - state.z
+    if (ahead < 0.45 || ahead > reach) continue
+    if (ahead < closest) closest = ahead
+    placeBall(slot.z, state.targetWall * Math.PI * 0.5, state.targetWall, v.sample)
+    boxCenter(slot.wall, slot.z, v.box)
+    if (ahead < 4.4 && sphereHitsBox(v.sample, slot.wall, v.box)) return true
+  }
+  return state.strain > 0.72 && closest < 6.2
+}
+
+function stepDread(state, dt, callbacks, v, cruise) {
+  state.rewindCd = Math.max(0, state.rewindCd - dt)
+  state.heartCd = Math.max(0, state.heartCd - dt)
+  state.heartFlash = Math.max(0, state.heartFlash - dt)
+  let speedSign = 1
+  if (state.rewind > 0) {
+    state.rewind -= dt
+    speedSign = -1
+    if (state.rewind <= 0) {
+      state.rewind = 0
+      callbacks.current.onDread?.({ phase: 'fracture-end' })
+    }
+  } else if (
+    state.rewindCd <= 0
+    && state.heart <= 0
+    && state.loan !== 'repay'
+    && state.age > 6
+    && dreadAhead(state, v, 7.2)
+  ) {
+    state.rewind = 1.38
+    state.rewindCd = 13
+    speedSign = -1
+    state.glitch = Math.max(state.glitch, 0.85)
+    tripGlitch(state, callbacks)
+    rewindSound()
+    callbacks.current.onDread?.({ phase: 'fracture' })
+  }
+
+  if (state.heart > 0) {
+    state.heart -= dt
+    state.heartGap -= dt
+    if (state.heartGap <= 0 && state.heart > 0) {
+      state.heartGap = 0.58
+      state.heartFlash = 0.16
+      placeBall(state.z, state.angle, state.targetWall, v.pos)
+      emitPulse(state, v.pos)
+      heartSound()
+      state.recoil = Math.max(state.recoil, 0.42)
+    }
+    if (state.heart <= 0) {
+      state.heart = 0
+      state.heartCd = 15 + Math.random() * 7
+      callbacks.current.onDread?.({ phase: 'heart-end' })
+    }
+  } else if (
+    state.heartCd <= 0
+    && state.rewind <= 0
+    && state.loan === 'idle'
+    && state.age > 8
+  ) {
+    state.heart = 2.5
+    state.heartGap = 0.02
+    callbacks.current.onDread?.({ phase: 'heart' })
+  }
+
+  state.lieCd = Math.max(0, state.lieCd - dt)
+  state.lie = Math.max(0, state.lie - dt)
+  state.lieClock -= dt
+  const tense = state.glitch > 0.62 || state.suspicion > 0.78 || state.lieClock <= 0
+  if (state.lie <= 0 && state.lieCd <= 0 && tense && state.age > 3) {
+    state.lie = 0.95
+    state.lieCd = 5.2
+    state.lieClock = 8 + Math.random() * 6
+    state.fakeSpeed = 3 + Math.floor(Math.random() * 42)
+    state.fakeDist = Math.floor(Math.random() * 980)
+    state.fakeSignal = Math.floor(Math.random() * 100)
+    state.fakeWarn = Math.random() > 0.5 ? 'CHAP TOZA' : 'ONG XAVF'
+  }
+  return cruise * speedSign
+}
+
+function witnessFigure() {
+  const pairs = [
+    -0.42, 0.55, 0, 0, 0.82, 0,
+    0, 0.82, 0, 0.42, 0.55, 0,
+    0.42, 0.55, 0, 0, 0.28, 0,
+    0, 0.28, 0, -0.42, 0.55, 0,
+    0, 0.42, 0, 0, 0.68, 0,
+    -0.1, 0.55, 0, 0.1, 0.55, 0,
+    -0.58, 0.02, 0, 0.58, 0.02, 0,
+    0, 0.24, 0, 0, -0.92, 0,
+    -0.3, -0.92, 0, 0.3, -0.92, 0,
+    -0.58, 0.02, 0, -0.78, -0.48, 0,
+    0.58, 0.02, 0, 0.78, -0.48, 0,
+  ]
+  const lines = new THREE.BufferGeometry()
+  lines.setAttribute('position', new THREE.Float32BufferAttribute(pairs, 3))
+  const count = pairs.length / 6
+  const dots = new Float32Array(count * 3)
+  for (let i = 0; i < count; i += 1) {
+    dots[i * 3] = pairs[i * 6]
+    dots[i * 3 + 1] = pairs[i * 6 + 1]
+    dots[i * 3 + 2] = pairs[i * 6 + 2]
+  }
+  const points = new THREE.BufferGeometry()
+  points.setAttribute('position', new THREE.BufferAttribute(dots, 3))
+  return { lines, points }
+}
+
+function aimWitness(group, wall, z, player) {
+  const angle = wall * Math.PI * 0.5
+  const inset = WALL - 0.1
+  const x = Math.sin(angle) * inset
+  const y = -Math.cos(angle) * inset
+  group.position.set(x, y, z)
+  const yaw = Math.atan2(player.x - x, player.z - z)
+  const pitch = Math.atan2(player.y - y, player.z - z)
+  if (wall === 0) group.rotation.set(-Math.PI / 2, 0, yaw)
+  else if (wall === 2) group.rotation.set(Math.PI / 2, 0, -yaw)
+  else if (wall === 1) group.rotation.set(pitch, Math.PI / 2, 0)
+  else group.rotation.set(-pitch, -Math.PI / 2, 0)
+}
+
+function stepWitness(state, dt, v) {
+  const witness = state.witness
+  witness.cd = Math.max(0, witness.cd - dt)
+  if (!witness.on) {
+    if (witness.cd <= 0 && state.age > 4) {
+      witness.on = true
+      witness.wall = (state.targetWall + 1 + Math.floor(Math.random() * 3)) % 4
+      witness.z = state.z + 18 + Math.random() * 20
+      witness.life = 7
+    }
+    return false
+  }
+  witness.life -= dt
+  const angle = witness.wall * Math.PI * 0.5
+  const inset = WALL - 0.1
+  const x = Math.sin(angle) * inset
+  const y = -Math.cos(angle) * inset
+  let broke = false
+  for (const wave of state.waves) {
+    if (Math.abs(wave.z - witness.z) < 1.35) broke = true
+  }
+  for (const pulse of state.pulses) {
+    if (Math.hypot(x - pulse.pos.x, y - pulse.pos.y, witness.z - pulse.pos.z) < pulse.radius + 0.4) {
+      broke = true
+    }
+  }
+  const near = Math.hypot(v.pos.x - x, v.pos.y - y, v.pos.z - witness.z) < 3.7
+  if (broke || near || witness.life <= 0 || witness.z < state.z - 8) {
+    if (broke || near) burstSparks(state, v.box.set(x, y, witness.z), 16)
+    witness.on = false
+    witness.cd = broke || near ? 6.5 : 2.4
+    return false
+  }
+  return true
 }
 
 function spawnGate(state) {
@@ -431,6 +626,7 @@ function liveCamera(state, dt, focusing, v, signals) {
   v.cam.z -= state.recoil * 1.22
   if (state.loan === 'slow') v.cam.z += 1.5
   if (state.loan === 'repay') v.cam.z -= 0.95
+  if (state.rewind > 0) v.cam.z += 0.7
   v.look.addScaledVector(v.right, peek * 0.24 * state.peekSide + eye * 1.35)
   v.look.addScaledVector(v.up, Math.cos(state.breath * 0.53) * 0.02 * state.sway)
   v.look.x += state.threatX * lean
@@ -510,6 +706,7 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
     geometry.setDrawRange(0, 0)
     return geometry
   }, [])
+  const witnessGeo = useMemo(() => witnessFigure(), [])
 
   useEffect(() => () => {
     tunnel.railGeo.dispose()
@@ -527,9 +724,11 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
     dimGeo.dispose()
     speckGeo.dispose()
     sparkGeo.dispose()
+    witnessGeo.lines.dispose()
+    witnessGeo.points.dispose()
     label.texture.dispose()
     label.material.dispose()
-  }, [arcGeo, boxEdges, dimGeo, label, sectionGeo, sparkGeo, speckGeo, sphereEdges, tunnel])
+  }, [arcGeo, boxEdges, dimGeo, label, sectionGeo, sparkGeo, speckGeo, sphereEdges, tunnel, witnessGeo])
 
   const runtime = useRef(null)
   if (!runtime.current) runtime.current = createRuntime()
@@ -550,6 +749,11 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
   const echoRefs = useRef([])
   const waveRefs = useRef([])
   const sparkRef = useRef(null)
+  const witnessRef = useRef(null)
+  const shadowRef = useRef(null)
+  const keyLight = useRef(null)
+  const fillLight = useRef(null)
+  const coreMat = useRef(null)
   const chromaFx = useRef(null)
   const tmp = useRef({
     pos: new THREE.Vector3(),
@@ -621,6 +825,11 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
       for (const mesh of waveRefs.current) if (mesh) mesh.visible = false
       for (const mesh of echoRefs.current) if (mesh) mesh.visible = false
       if (sparkRef.current) sparkRef.current.visible = false
+      if (witnessRef.current) witnessRef.current.visible = false
+      if (shadowRef.current) shadowRef.current.visible = false
+      if (keyLight.current) keyLight.current.intensity = 10
+      if (fillLight.current) fillLight.current.intensity = 3
+      if (coreMat.current) coreMat.current.opacity = 1
       if (tunnelRef.current) tunnelRef.current.scale.set(1, 1, 1)
       state.glitch = 0
       const idleMixTarget = styleRef?.current === 'kontur' ? 1 : 0
@@ -719,21 +928,30 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
 
     const cruise = Math.min(29, 13 + state.z * 0.011) * Math.min(1, 0.35 + state.age / 0.7)
     state.boost = Math.max(0, state.boost - dt * 1.4)
-    let speed = cruise * (1 + state.boost * 0.62)
+    const signed = stepDread(state, dt, callbacks, v, cruise)
+    let speed = Math.abs(signed) * (1 + state.boost * 0.62)
     if (state.loan === 'repay') speed *= 1.72
+    if (signed < 0) speed = -Math.abs(cruise) * 0.58
     state.prevZ = state.z
-    state.z += speed * step
-    setDrive(speed, state.loan === 'repay' ? false : (focusing || state.loan === 'slow'))
+    const motion = state.rewind > 0 ? dt : step
+    state.z = Math.max(0, state.z + speed * motion)
+    state.scanTime += state.rewind > 0 ? -dt * 2.6 : dt
+    setDrive(
+      state.rewind > 0 ? 6 : Math.abs(speed),
+      state.loan === 'repay' ? false : (focusing || state.loan === 'slow' || state.rewind > 0),
+    )
 
     while (state.nextSpawn < state.z + 95) spawnGate(state)
 
     placeBall(state.z, state.angle, state.targetWall, v.pos)
     playLoanEvent(state, callbacks, v.pos)
     let hit = false
+    const sweepLo = Math.min(state.prevZ, state.z)
+    const sweepHi = Math.max(state.prevZ, state.z)
     for (const slot of state.slots) {
       if (!slot.active) continue
-      if (slot.z < state.prevZ - 1.4 || slot.z > state.z + 1.4) continue
-      const sampleZ = Math.min(Math.max(slot.z, state.prevZ), state.z)
+      if (slot.z < sweepLo - 1.4 || slot.z > sweepHi + 1.4) continue
+      const sampleZ = THREE.MathUtils.clamp(slot.z, sweepLo, sweepHi)
       placeBall(sampleZ, state.angle, state.targetWall, v.sample)
       boxCenter(slot.wall, slot.z, v.box)
       if (sphereHitsBox(v.sample, slot.wall, v.box)) {
@@ -760,7 +978,7 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
     }
 
     for (const echo of state.echoes) {
-      if (echo.synced) continue
+      if (echo.synced || state.rewind > 0) continue
       if (!(state.prevZ < echo.z && echo.z <= state.z)) continue
       echo.synced = true
       const aligned = echo.wall === state.targetWall
@@ -802,7 +1020,7 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
     let bestMult = 0
     let bestSlot = null
     for (const slot of state.slots) {
-      if (!slot.active || slot.missed) continue
+      if (!slot.active || slot.missed || state.rewind > 0) continue
       if (!(state.prevZ < slot.z && slot.z <= state.z)) continue
       slot.missed = true
       placeBall(slot.z, state.angle, state.targetWall, v.sample)
@@ -922,7 +1140,19 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
       threatX = Math.sin(wallAngle)
       threatY = -Math.cos(wallAngle)
     }
-    const drive = THREE.MathUtils.clamp((speed - 13) / 16, 0, 1)
+    const drive = THREE.MathUtils.clamp((Math.abs(speed) - 13) / 16, 0, 1)
+    state.hudTick -= dt
+    if (state.hudTick <= 0) {
+      state.hudTick = 0.14
+      const lying = state.lie > 0
+      callbacks.current.onTelemetry?.({
+        lie: lying,
+        speed: lying ? state.fakeSpeed : Math.round(Math.abs(speed)),
+        dist: lying ? state.fakeDist : Math.floor(state.z),
+        signal: lying ? state.fakeSignal : Math.round(Math.min(1, threatScore) * 100),
+        warn: lying ? state.fakeWarn : (threatScore > 0.55 ? 'XAVF' : 'SOKIN'),
+      })
+    }
     const streak = Math.min(1, (state.combo + state.echoCombo) / 8)
     const moodTarget = THREE.MathUtils.clamp(0.2 + drive * 0.48 + streak * 0.38 - state.strain * 0.42, 0.06, 1)
     state.mood += (moodTarget - state.mood) * Math.min(1, dt * 1.7)
@@ -939,7 +1169,8 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
       rule: input.current.rule,
     })
     const loanFov = state.loan === 'slow' ? -11 : state.loan === 'repay' ? 10 : 0
-    const fov = Math.min(98, (size.width < size.height ? 84 : 68) + drive * 14 - (focusing ? 8 : 0) + loanFov + state.recoil * 3.2)
+    const heartFov = state.heart > 0 ? (state.heartFlash > 0.02 ? 6 : -8) : 0
+    const fov = Math.min(98, (size.width < size.height ? 84 : 68) + drive * 14 - (focusing ? 8 : 0) + loanFov + heartFov + state.recoil * 3.2)
     if (Math.abs(camera.fov - fov) > 0.12) {
       camera.fov = fov
       camera.updateProjectionMatrix()
@@ -964,14 +1195,28 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
     v.moodColor.set(state.strain > state.mood ? 0x12010c : 0x001016)
     v.moodColor.multiplyScalar(0.35 + state.mood * 0.2)
     gl.setClearColor(v.moodColor)
-    syncTunnel(tunnel.rails, state.pulses, state.z, v.gravity, state.time, state.moodPack)
-    syncTunnel(tunnel.rings, state.pulses, state.z, v.gravity, state.time, state.moodPack)
+    if (state.heart > 0 && state.heartFlash < 0.04) v.moodColor.set(0x000000)
+    syncTunnel(tunnel.rails, state.pulses, state.z, v.gravity, state.scanTime, state.moodPack)
+    syncTunnel(tunnel.rings, state.pulses, state.z, v.gravity, state.scanTime, state.moodPack)
 
     if (playerRef.current) {
       playerRef.current.position.copy(v.pos)
       playerRef.current.rotation.x -= dt * (1.2 + speed * 0.05)
     }
-    if (shellMat.current) shellMat.current.emissiveIntensity = 3.4
+    if (shellMat.current) {
+      shellMat.current.emissiveIntensity = state.heart > 0
+        ? (state.heartFlash > 0.02 ? 4.2 : 0.18)
+        : 3.4
+    }
+    if (keyLight.current) {
+      keyLight.current.intensity = state.heart > 0 ? (state.heartFlash > 0.02 ? 16 : 0.3) : 10
+    }
+    if (fillLight.current) {
+      fillLight.current.intensity = state.heart > 0 ? (state.heartFlash > 0.02 ? 5 : 0.04) : 3
+    }
+    if (coreMat.current) {
+      coreMat.current.opacity = state.heart > 0 && state.heartFlash < 0.04 ? 0.12 : 1
+    }
 
     trailCursor.current = (trailCursor.current + 1) % trailRefs.current.length
     const trail = trailRefs.current[trailCursor.current]
@@ -998,6 +1243,12 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
     tunnel.rings.uniforms.uGain.value = (1.15 * (1 - mix * 0.7) + flash * 0.7) * moodGain
     tunnel.railLines.opacity = Math.min(1, (mix * 0.92 + flash * 0.9) * moodGain + (1 - mix) * state.mood * 0.28)
     tunnel.ringLines.opacity = Math.min(1, (mix * 0.8 + flash * 0.75) * moodGain + (1 - mix) * state.mood * 0.2)
+    if (state.heart > 0 && state.heartFlash < 0.04) {
+      tunnel.rails.uniforms.uGain.value *= 0.16
+      tunnel.rings.uniforms.uGain.value *= 0.16
+      tunnel.railLines.opacity = Math.max(tunnel.railLines.opacity, 0.78)
+      tunnel.ringLines.opacity = Math.max(tunnel.ringLines.opacity, 0.62)
+    }
     if (shellMat.current) {
       shellMat.current.opacity = 1 - mix * 0.78
       shellMat.current.depthWrite = mix < 0.8
@@ -1120,12 +1371,14 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
 
     const specks = speckGeo.attributes.position.array
     for (let i = 0; i < SPECKS; i += 1) {
-      specks[i * 3 + 2] -= speed * step * (0.45 + (i % 5) * 0.09)
-      if (specks[i * 3 + 2] < state.z - 8) specks[i * 3 + 2] += 82
+      specks[i * 3 + 2] -= speed * motion * (0.45 + (i % 5) * 0.09)
+      if (state.rewind > 0) {
+        if (specks[i * 3 + 2] > state.z + 78) specks[i * 3 + 2] -= 82
+      } else if (specks[i * 3 + 2] < state.z - 8) specks[i * 3 + 2] += 82
     }
     speckGeo.attributes.position.needsUpdate = true
     if (speckRef.current) {
-      speckRef.current.material.opacity = (0.14 + drive * 0.62) * (focusing ? 0.55 : 1)
+      speckRef.current.material.opacity = (0.14 + drive * 0.62) * (focusing ? 0.55 : 1) * (state.heart > 0 && state.heartFlash < 0.04 ? 0.12 : 1)
       speckRef.current.material.size = 0.04 + drive * 0.08
     }
 
@@ -1138,6 +1391,7 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
       spark.x += spark.vx * dt * 8
       spark.y += spark.vy * dt * 8
       spark.z += spark.vz * dt * 8
+      if (state.rewind > 0) spark.z -= speed * dt * 3.2
       sparkPos[sparkCount * 3] = spark.x
       sparkPos[sparkCount * 3 + 1] = spark.y
       sparkPos[sparkCount * 3 + 2] = spark.z
@@ -1196,6 +1450,24 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
       mesh.children.forEach((child, index) => {
         if (child.material) child.material.opacity = fade * (index === 0 ? 0.55 : 0.8)
       })
+    }
+
+    if (witnessRef.current) {
+      const shown = stepWitness(state, dt, v)
+      witnessRef.current.visible = shown
+      if (shown) aimWitness(witnessRef.current, state.witness.wall, state.witness.z, v.pos)
+    }
+    if (shadowRef.current) {
+      const shade = state.heart > 0 && state.heartFlash < 0.05
+      shadowRef.current.visible = shade
+      if (shade) {
+        shadowRef.current.position.set(
+          v.pos.x - v.up.x * 0.62,
+          v.pos.y - v.up.y * 0.62,
+          v.pos.z - 0.35,
+        )
+        if (playerRef.current) shadowRef.current.quaternion.copy(playerRef.current.quaternion)
+      }
     }
   })
 
@@ -1258,10 +1530,10 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
         </lineSegments>
         <mesh>
           <sphereGeometry args={[PLAYER_R * 0.42, 20, 14]} />
-          <meshBasicMaterial color="#ff2bd6" toneMapped={false} />
+          <meshBasicMaterial ref={coreMat} color="#ff2bd6" transparent opacity={1} toneMapped={false} />
         </mesh>
-        <pointLight color="#7af7ff" intensity={10} distance={8} decay={2} />
-        <pointLight color="#ff2bd6" intensity={3} distance={3.5} decay={2} />
+        <pointLight ref={keyLight} color="#7af7ff" intensity={10} distance={8} decay={2} />
+        <pointLight ref={fillLight} color="#ff2bd6" intensity={3} distance={3.5} decay={2} />
       </group>
 
       {Array.from({ length: 8 }, (_, i) => (
@@ -1347,6 +1619,26 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
         />
       </points>
 
+      <group ref={witnessRef} visible={false}>
+        <lineSegments geometry={witnessGeo.lines} frustumCulled={false}>
+          <lineBasicMaterial color="#d7fbff" transparent opacity={0.92} toneMapped={false} depthWrite={false} />
+        </lineSegments>
+        <points geometry={witnessGeo.points} frustumCulled={false}>
+          <pointsMaterial
+            color="#00f3ff"
+            size={0.05}
+            transparent
+            opacity={0.95}
+            depthWrite={false}
+            toneMapped={false}
+            sizeAttenuation
+          />
+        </points>
+      </group>
+      <lineSegments ref={shadowRef} geometry={sphereEdges} visible={false} frustumCulled={false}>
+        <lineBasicMaterial color="#ff2bd6" transparent opacity={0.28} toneMapped={false} depthWrite={false} />
+      </lineSegments>
+
       {Array.from({ length: 3 }, (_, i) => (
         <group key={`pulse-${i}`} ref={(node) => { pulseRefs.current[i] = node }} visible={false}>
           <mesh>
@@ -1406,14 +1698,16 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
   )
 }
 
-function WorldCanvas({ active, runId, input, styleRef, onScore, onCrash, onNearMiss, onGlitch, onEcho, onLoan }) {
-  const callbacks = useRef({ onScore, onCrash, onNearMiss, onGlitch, onEcho, onLoan })
+function WorldCanvas({ active, runId, input, styleRef, onScore, onCrash, onNearMiss, onGlitch, onEcho, onLoan, onDread, onTelemetry }) {
+  const callbacks = useRef({ onScore, onCrash, onNearMiss, onGlitch, onEcho, onLoan, onDread, onTelemetry })
   callbacks.current.onScore = onScore
   callbacks.current.onCrash = onCrash
   callbacks.current.onNearMiss = onNearMiss
   callbacks.current.onGlitch = onGlitch
   callbacks.current.onEcho = onEcho
   callbacks.current.onLoan = onLoan
+  callbacks.current.onDread = onDread
+  callbacks.current.onTelemetry = onTelemetry
 
   return (
     <Canvas
