@@ -23,12 +23,17 @@ import {
   stopDrone,
   surgeClearSound,
   surgeSound,
+  tremorBreach,
+  tremorHeart,
+  tremorHit,
+  tremorWarn,
   vibrate,
 } from '../audio.js'
 import { restPressure, syncPressure } from '../audioPressure.js'
 import { COLORS, PLAYER_R, POOL, STICK, WALL } from './constants.js'
 import { buildTunnelGeometry, createTunnelMaterial, syncTunnel } from './tunnel.js'
 import { ABYSS_TINT, stepAbyss } from './abyss.js'
+import { applyTremor, createTremor, resetTremor, stepTremor } from './tremor.js'
 
 const HALF_THIN = 0.26
 const HALF_WIDE = 0.85
@@ -241,6 +246,7 @@ function createRuntime() {
     abyssPing: 0,
     abyssSnap: 0,
     mirage: 0,
+    tremor: createTremor(),
     lodApplied: -1,
   }
 }
@@ -328,6 +334,7 @@ function resetRuntime(state) {
   state.abyssPing = 0
   state.abyssSnap = 0
   state.mirage = 0
+  resetTremor(state.tremor)
   for (const decoy of state.decoys) decoy.on = false
   state.gates.length = 0
   state.pulses.length = 0
@@ -1395,6 +1402,30 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
       state.lastScore = total
       callbacks.current.onScore(total)
     }
+    const tremor = state.tremor
+    stepTremor(tremor, total, dt, state.lod)
+    if (tremor.pulse === 1) tremorWarn()
+    else if (tremor.pulse === 2) {
+      tremorHit()
+      emitPulse(state, v.pos)
+      burstSparks(state, v.pos, state.lod ? 6 : 12)
+      tripGlitch(state, callbacks)
+      callbacks.current.onTremor?.({ phase: 'wall' })
+    } else if (tremor.pulse === 3) tremorHeart()
+    else if (tremor.pulse === 4) {
+      tremorBreach()
+      emitPulse(state, v.pos)
+      burstSparks(state, v.pos, state.lod ? 8 : 16)
+      tripGlitch(state, callbacks)
+      callbacks.current.onTremor?.({ phase: 'breach' })
+    }
+    if (tremor.cue && !tremor.cueSent) {
+      tremor.cueSent = 1
+      callbacks.current.onTremor?.({ phase: 'near' })
+    } else if (!tremor.cue && tremor.cueSent && tremor.mark < 2) {
+      tremor.cueSent = 0
+      callbacks.current.onTremor?.({ phase: 'calm' })
+    }
 
     for (const pulse of state.pulses) {
       pulse.age += step
@@ -1411,6 +1442,7 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
     }
     state.glitch = Math.max(0, state.glitch - dt / 0.18)
     if (state.abyssGlitch > 0) state.glitch = Math.max(state.glitch, state.abyssGlitch)
+    if (state.tremor.glint > 0) state.glitch = Math.max(state.glitch, state.tremor.glint)
 
     for (const slot of state.slots) {
       if (!slot.active) continue
@@ -1493,12 +1525,14 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
     sig.spike = false
     sig.rule = input.current.rule
     liveCamera(state, dt, focusing, v, sig)
+    applyTremor(state.tremor, state.time, v)
     const loanFov = state.loan === 'slow' ? -11 : state.loan === 'repay' ? 10 : 0
     const heartFov = state.heart > 0 ? (state.heartFlash > 0.02 ? 6 : -8) : 0
     const surgeFov = state.surge > 0 ? 7 : 0
     const kickFov = state.fovKick > 0 ? 6 * (state.fovKick / 0.032) : 0
     const abyssFov = (state.abyssCold || 0) * 3
-    const fov = Math.min(98, (size.width < size.height ? 84 : 68) + drive * 14 - (focusing ? 8 : 0) + loanFov + heartFov + surgeFov + kickFov + abyssFov + state.recoil * 3.2)
+    const tremorFov = state.tremor.fov * 18 + state.tremor.amp * (state.lod ? 0.5 : 1.2)
+    const fov = Math.min(98, (size.width < size.height ? 84 : 68) + drive * 14 - (focusing ? 8 : 0) + loanFov + heartFov + surgeFov + kickFov + abyssFov + tremorFov + state.recoil * 3.2)
     if (Math.abs(camera.fov - fov) > 0.12) {
       camera.fov = fov
       camera.updateProjectionMatrix()
@@ -1579,6 +1613,11 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
     if (state.arrow > 0.02) {
       tunnel.railLines.opacity = Math.min(1, tunnel.railLines.opacity + 0.46)
       tunnel.ringLines.opacity = Math.min(1, tunnel.ringLines.opacity + 0.3)
+    }
+    if (state.tremor.line > 0.04) {
+      const tense = state.tremor.line * (state.lod ? 0.18 : 0.34)
+      tunnel.railLines.opacity = Math.min(1, tunnel.railLines.opacity + tense)
+      tunnel.ringLines.opacity = Math.min(1, tunnel.ringLines.opacity + tense * 0.72)
     }
     if (state.heart > 0 && state.heartFlash < 0.04) {
       tunnel.rails.uniforms.uGain.value *= 0.16
@@ -2127,8 +2166,8 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
   )
 }
 
-function WorldCanvas({ active, runId, input, styleRef, onScore, onCrash, onNearMiss, onGlitch, onEcho, onLoan, onDread, onTelemetry, onFps, onAbyss }) {
-  const callbacks = useRef({ onScore, onCrash, onNearMiss, onGlitch, onEcho, onLoan, onDread, onTelemetry, onFps, onAbyss })
+function WorldCanvas({ active, runId, input, styleRef, onScore, onCrash, onNearMiss, onGlitch, onEcho, onLoan, onDread, onTelemetry, onFps, onAbyss, onTremor }) {
+  const callbacks = useRef({ onScore, onCrash, onNearMiss, onGlitch, onEcho, onLoan, onDread, onTelemetry, onFps, onAbyss, onTremor })
   callbacks.current.onScore = onScore
   callbacks.current.onCrash = onCrash
   callbacks.current.onNearMiss = onNearMiss
@@ -2139,6 +2178,7 @@ function WorldCanvas({ active, runId, input, styleRef, onScore, onCrash, onNearM
   callbacks.current.onTelemetry = onTelemetry
   callbacks.current.onFps = onFps
   callbacks.current.onAbyss = onAbyss
+  callbacks.current.onTremor = onTremor
 
   return (
     <Canvas

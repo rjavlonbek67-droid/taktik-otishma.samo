@@ -663,3 +663,57 @@ export function stopDrone() {
   }
   drone = null
 }
+
+export function tremorWarn() {
+  unlock()
+  burst({
+    type: 'sine',
+    from: 96,
+    to: 52,
+    dur: 0.14,
+    peak: 0.04,
+    filterFreq: 170,
+    filterTo: 70,
+  })
+}
+
+export function tremorHit() {
+  unlock()
+  burst({
+    type: 'sine',
+    from: 74,
+    to: 32,
+    dur: 0.22,
+    peak: 0.11,
+    filterFreq: 150,
+    filterTo: 48,
+  })
+  noiseHit(0.08, 90, 0.45, 0.035)
+}
+
+export function tremorHeart() {
+  unlock()
+  burst({
+    type: 'triangle',
+    from: 46,
+    to: 34,
+    dur: 0.11,
+    peak: 0.065,
+    filterFreq: 110,
+    filterTo: 55,
+  })
+}
+
+export function tremorBreach() {
+  unlock()
+  burst({
+    type: 'sawtooth',
+    from: 88,
+    to: 28,
+    dur: 0.32,
+    peak: 0.13,
+    filterFreq: 220,
+    filterTo: 42,
+  })
+  noiseHit(0.14, 100, 0.4, 0.05)
+}

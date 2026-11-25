@@ -358,6 +358,20 @@ body,
   text-shadow: 0 0 14px #6d8cff;
 }
 
+.tremor-cue {
+  position: absolute;
+  top: calc(env(safe-area-inset-top) + 98px);
+  left: 0;
+  right: 0;
+  z-index: 3;
+  text-align: center;
+  pointer-events: none;
+  color: #f2f7ff;
+  font-size: 0.78rem;
+  letter-spacing: 0.62em;
+  text-shadow: 0 0 16px #8eb4ff, 0 0 2px #ffffff;
+}
+
 .app.is-abyss .hud {
   text-shadow: 0 0 16px #6d8cff;
 }

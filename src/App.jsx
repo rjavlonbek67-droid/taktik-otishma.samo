@@ -38,6 +38,7 @@ export default function App() {
   const [dread, setDread] = useState(null)
   const [fps, setFps] = useState(0)
   const [abyss, setAbyss] = useState(null)
+  const [tremorCue, setTremorCue] = useState(false)
   const phaseRef = useRef(phase)
   const styleRef = useRef(style)
   const input = useRef({
@@ -128,6 +129,7 @@ export default function App() {
     setTele(null)
     setDread(null)
     setAbyss(null)
+    setTremorCue(false)
     setScore(0)
     setMiss(null)
     setRunId((value) => value + 1)
@@ -201,6 +203,16 @@ export default function App() {
       flashUltra('hit', 'SAROB', 'YOL YOPIQ', 720)
     }
   }, [flashUltra, showNote])
+
+  const onTremor = useCallback((info) => {
+    if (info.phase === 'wall') flashUltra('hit', '500', 'BIRINCHI SINOV', 820)
+    else if (info.phase === 'near') setTremorCue(true)
+    else if (info.phase === 'calm') setTremorCue(false)
+    else if (info.phase === 'breach') {
+      setTremorCue(false)
+      flashUltra('hit', '1000', 'CHEGARA BUZILDI', 1200)
+    }
+  }, [flashUltra])
 
   const onDread = useCallback((info) => {
     if (info.phase === 'fracture') {
@@ -449,6 +461,7 @@ export default function App() {
         onTelemetry={onTelemetry}
         onFps={setFps}
         onAbyss={onAbyss}
+        onTremor={onTremor}
       />
 
       <button
@@ -472,6 +485,7 @@ export default function App() {
       {phase === 'play' && abyss && (
         <div className={abyss.hot ? 'abyss is-hot' : 'abyss'}>{abyss.text}</div>
       )}
+      {phase === 'play' && tremorCue && <div className="tremor-cue">1000</div>}
       {phase === 'play' && tele && (
         <div className={tele.lie ? 'tele is-lie' : 'tele'}>
           <span>TEZ<b>{tele.speed}</b></span>
