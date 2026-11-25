@@ -1,18 +1,40 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { startDrone, unlock } from './audio.js'
+import { focusSound, setMuted, startDrone, unlock } from './audio.js'
 import { readBest, writeBest } from './game/constants.js'
 import World from './game/World.jsx'
+
+const SWIPE = 25
+const HOLD_MS = 140
 
 export default function App() {
   const [phase, setPhase] = useState('menu')
   const [score, setScore] = useState(0)
   const [best, setBest] = useState(readBest)
   const [runId, setRunId] = useState(0)
+  const [style, setStyle] = useState('neon')
+  const [focusUi, setFocusUi] = useState(false)
+  const [miss, setMiss] = useState(null)
+  const [muted, setMutedUi] = useState(false)
+  const [glitch, setGlitch] = useState(null)
   const phaseRef = useRef(phase)
-  const input = useRef({ pending: false, sign: 1 })
+  const styleRef = useRef(style)
+  const input = useRef({
+    pending: false,
+    sign: 1,
+    immediate: false,
+    focus: false,
+    impulse: false,
+    rule: 0,
+    glitch: 0,
+  })
+  const gesture = useRef(null)
+  const holdTimer = useRef(0)
   const crashTimer = useRef(0)
+  const missTimer = useRef(0)
+  const glitchTimer = useRef(0)
 
   phaseRef.current = phase
+  styleRef.current = style
 
   const remember = useCallback((value) => {
     setScore(value)
@@ -23,61 +45,200 @@ export default function App() {
     })
   }, [])
 
-  const queueFlip = useCallback((sign) => {
+  const queueFlip = useCallback((sign, immediate = false) => {
     if (phaseRef.current !== 'play') return
     input.current.pending = true
     input.current.sign = sign
+    input.current.immediate = immediate
+  }, [])
+
+  const clearHold = useCallback(() => {
+    window.clearTimeout(holdTimer.current)
+    input.current.focus = false
+    setFocusUi(false)
   }, [])
 
   const start = useCallback(() => {
     window.clearTimeout(crashTimer.current)
+    clearHold()
     unlock()
     startDrone()
     input.current.pending = false
+    input.current.impulse = false
     setScore(0)
+    setMiss(null)
     setRunId((value) => value + 1)
     setPhase('play')
-  }, [])
+  }, [clearHold])
 
   const onCrash = useCallback((finalScore) => {
+    clearHold()
     remember(finalScore)
     setPhase('dead')
     window.clearTimeout(crashTimer.current)
     crashTimer.current = window.setTimeout(() => setPhase('menu'), 720)
-  }, [remember])
+  }, [clearHold, remember])
 
-  useEffect(() => () => window.clearTimeout(crashTimer.current), [])
+  const onNearMiss = useCallback((hit) => {
+    const id = performance.now()
+    setMiss({ id, ...hit })
+    window.clearTimeout(missTimer.current)
+    missTimer.current = window.setTimeout(() => setMiss(null), 720)
+  }, [])
+
+  const onGlitch = useCallback(() => {
+    const id = performance.now()
+    setGlitch({ id })
+    window.clearTimeout(glitchTimer.current)
+    glitchTimer.current = window.setTimeout(() => setGlitch(null), 190)
+  }, [])
+
+  const toggleMute = useCallback((event) => {
+    event.stopPropagation()
+    setMutedUi((current) => {
+      const next = !current
+      unlock()
+      setMuted(next)
+      return next
+    })
+  }, [])
+
+  const toggleStyle = useCallback((event) => {
+    event.stopPropagation()
+    setStyle((current) => (current === 'kontur' ? 'neon' : 'kontur'))
+  }, [])
+
+  useEffect(() => () => {
+    window.clearTimeout(crashTimer.current)
+    window.clearTimeout(holdTimer.current)
+    window.clearTimeout(missTimer.current)
+    window.clearTimeout(glitchTimer.current)
+  }, [])
+
+  useEffect(() => {
+    const block = (event) => {
+      if (phaseRef.current === 'play') event.preventDefault()
+    }
+    window.addEventListener('touchmove', block, { passive: false })
+    return () => window.removeEventListener('touchmove', block)
+  }, [])
 
   useEffect(() => {
     const onKey = (event) => {
       if (event.repeat) return
-      if (event.code === 'Space' || event.code === 'KeyW' || event.code === 'ArrowUp') {
+      if (event.code === 'Space' || event.code === 'KeyW' || event.code === 'ArrowRight') {
         event.preventDefault()
-        queueFlip(1)
-      } else if (event.code === 'KeyS' || event.code === 'ArrowDown') {
+        queueFlip(1, event.code === 'ArrowRight')
+      } else if (event.code === 'KeyS' || event.code === 'ArrowLeft') {
         event.preventDefault()
-        queueFlip(-1)
+        queueFlip(-1, event.code === 'ArrowLeft')
+      } else if (event.code === 'ArrowUp' || event.code === 'ArrowDown') {
+        event.preventDefault()
+        queueFlip(event.code === 'ArrowDown' ? -2 : 2, true)
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [queueFlip])
 
+  const onPointerDown = (event) => {
+    if (event.target.closest('button')) return
+    if (phaseRef.current !== 'play') return
+    gesture.current = {
+      x: event.clientX,
+      y: event.clientY,
+      swiped: false,
+      held: false,
+    }
+    window.clearTimeout(holdTimer.current)
+    holdTimer.current = window.setTimeout(() => {
+      const current = gesture.current
+      if (!current || current.swiped || phaseRef.current !== 'play') return
+      current.held = true
+      input.current.focus = true
+      setFocusUi(true)
+      focusSound()
+    }, HOLD_MS)
+    event.currentTarget.setPointerCapture?.(event.pointerId)
+  }
+
+  const onPointerMove = (event) => {
+    const current = gesture.current
+    if (!current || current.swiped || phaseRef.current !== 'play') return
+    const dx = event.clientX - current.x
+    const dy = event.clientY - current.y
+    if (Math.hypot(dx, dy) < SWIPE) return
+    current.swiped = true
+    window.clearTimeout(holdTimer.current)
+    if (current.held) {
+      current.held = false
+      input.current.focus = false
+      input.current.impulse = true
+      setFocusUi(false)
+    }
+    const horizontal = Math.abs(dx) >= Math.abs(dy)
+    queueFlip(horizontal ? (dx > 0 ? 1 : -1) : (dy > 0 ? 2 : -2), true)
+  }
+
+  const onPointerUp = () => {
+    window.clearTimeout(holdTimer.current)
+    const current = gesture.current
+    gesture.current = null
+    if (!current || phaseRef.current !== 'play') return
+    if (current.held) {
+      input.current.focus = false
+      input.current.impulse = true
+      setFocusUi(false)
+      return
+    }
+    if (!current.swiped) queueFlip(1, false)
+  }
+
   return (
     <div
-      className={phase === 'play' ? 'app is-play' : 'app'}
-      onPointerDown={() => queueFlip(1)}
+      className={`${phase === 'play' ? 'app is-play' : 'app'}${focusUi ? ' is-focus' : ''}`}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerUp}
       onContextMenu={(event) => event.preventDefault()}
     >
       <World
         active={phase === 'play'}
         runId={runId}
         input={input}
+        styleRef={styleRef}
         onScore={remember}
         onCrash={onCrash}
+        onNearMiss={onNearMiss}
+        onGlitch={onGlitch}
       />
 
+      <button
+        className={muted ? 'sound is-off' : 'sound'}
+        type="button"
+        onPointerDown={toggleMute}
+      >
+        OVOZ
+      </button>
+
+      <button
+        className={style === 'kontur' ? 'mode is-kontur' : 'mode'}
+        type="button"
+        onPointerDown={toggleStyle}
+      >
+        <span className={style === 'kontur' ? 'on' : ''}>KONTUR</span>
+        <span className={style === 'neon' ? 'on' : ''}>NEON</span>
+      </button>
+
       {phase === 'play' && <div className="hud">{score}</div>}
+      {miss && (
+        <div key={miss.id} className="near" data-mult={miss.mult}>
+          NEAR MISS +{miss.points}
+          <b>{miss.combo > 1 ? `COMBO x${miss.combo}` : `x${miss.mult}`}</b>
+        </div>
+      )}
+      {glitch && <div key={glitch.id} className="glitch-fx" />}
       {phase === 'dead' && <div className="flash" />}
 
       {phase === 'menu' && (

@@ -33,6 +33,12 @@ body {
   -webkit-tap-highlight-color: transparent;
 }
 
+html,
+body {
+  touch-action: none;
+  overscroll-behavior-x: none;
+}
+
 .app {
   position: relative;
   background: #000;
@@ -152,6 +158,131 @@ body {
   pointer-events: none;
   background: radial-gradient(circle at 50% 60%, rgba(255, 43, 214, 0.45), rgba(0, 0, 0, 0.2) 55%, transparent 70%);
   animation: flash-out 0.7s ease forwards;
+}
+
+.sound {
+  position: absolute;
+  top: calc(env(safe-area-inset-top) + 12px);
+  left: max(10px, env(safe-area-inset-left));
+  z-index: 4;
+  border: 1px solid rgba(0, 243, 255, 0.55);
+  background: rgba(0, 0, 0, 0.55);
+  color: #f4feff;
+  font: inherit;
+  letter-spacing: 0.14em;
+  font-size: clamp(0.62rem, 2.1vw, 0.72rem);
+  padding: 0.42rem 0.5rem;
+  cursor: pointer;
+  touch-action: none;
+  text-shadow: 0 0 10px var(--cyan);
+}
+
+.sound.is-off {
+  color: rgba(232, 252, 255, 0.35);
+  text-decoration: line-through;
+  text-shadow: none;
+}
+
+.mode {
+  position: absolute;
+  top: calc(env(safe-area-inset-top) + 12px);
+  right: max(10px, env(safe-area-inset-right));
+  z-index: 4;
+  display: flex;
+  gap: 0;
+  padding: 0;
+  border: 1px solid rgba(0, 243, 255, 0.55);
+  background: rgba(0, 0, 0, 0.55);
+  color: rgba(232, 252, 255, 0.45);
+  font: inherit;
+  letter-spacing: 0.14em;
+  cursor: pointer;
+  touch-action: none;
+}
+
+.mode span {
+  padding: 0.42rem 0.48rem;
+  font-size: clamp(0.62rem, 2.1vw, 0.72rem);
+}
+
+.mode span.on {
+  color: #f4feff;
+  text-shadow: 0 0 10px var(--cyan);
+  background: rgba(0, 243, 255, 0.12);
+}
+
+.mode.is-kontur span.on {
+  text-shadow: 0 0 10px #9ecbff;
+}
+
+.near {
+  position: absolute;
+  top: calc(env(safe-area-inset-top) + 58px);
+  left: 0;
+  right: 0;
+  z-index: 4;
+  text-align: center;
+  color: #fff;
+  font-size: clamp(0.95rem, 3.4vw, 1.35rem);
+  letter-spacing: 0.22em;
+  text-shadow: 0 0 16px var(--magenta);
+  pointer-events: none;
+  animation: near-pop 0.72s ease forwards;
+}
+
+.near::before {
+  content: "";
+  position: absolute;
+  inset: -40vh 0 auto;
+  height: 100vh;
+  box-shadow: inset 0 0 70px rgba(255, 43, 214, 0.85);
+  animation: flash-out 0.72s ease forwards;
+}
+
+.near b {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 0.72em;
+  letter-spacing: 0.28em;
+  color: #ffe14a;
+}
+
+.near[data-mult="3"] {
+  text-shadow: 0 0 18px #ffe14a;
+}
+
+.glitch-fx {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+  background:
+    linear-gradient(90deg, rgba(255, 43, 214, 0.28), transparent 42%, rgba(0, 243, 255, 0.28)),
+    repeating-linear-gradient(0deg, transparent 0 2px, rgba(180, 255, 255, 0.18) 2px 3px);
+  mix-blend-mode: screen;
+  animation: glitch-burst 0.18s steps(2, end) forwards;
+}
+
+.app.is-focus::before {
+  content: "";
+  position: absolute;
+  inset: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
+  border: 1px solid rgba(0, 243, 255, 0.55);
+  box-shadow: inset 0 0 40px rgba(0, 243, 255, 0.08);
+  pointer-events: none;
+  z-index: 3;
+}
+
+@keyframes glitch-burst {
+  0% { opacity: 1; transform: translate(5px, -2px) skewX(-2deg); }
+  45% { opacity: 0.9; transform: translate(-7px, 2px) skewX(1.6deg); }
+  100% { opacity: 0; transform: none; }
+}
+
+@keyframes near-pop {
+  0% { opacity: 0; transform: translateY(6px) scale(0.96); }
+  18% { opacity: 1; transform: none; }
+  100% { opacity: 0; transform: translateY(-8px); }
 }
 
 @keyframes flash-out {

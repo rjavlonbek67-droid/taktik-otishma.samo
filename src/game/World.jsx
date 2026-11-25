@@ -1,10 +1,12 @@
 import { memo, useEffect, useMemo, useRef } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
-import { Bloom, EffectComposer } from '@react-three/postprocessing'
+import { Bloom, ChromaticAberration, EffectComposer } from '@react-three/postprocessing'
 import * as THREE from 'three'
 import {
   crashSound,
   gravitySound,
+  impulseSound,
+  nearMissSound,
   passSound,
   pulseSound,
   setDrive,
@@ -18,6 +20,9 @@ const HALF_THIN = 0.26
 const HALF_WIDE = 0.85
 const HALF_DEEP = 0.64
 const OMEGA = 12
+const ARC = 32
+const SPECKS = 72
+const SPARKS = 48
 
 function shortest(target, current) {
   return Math.atan2(Math.sin(target - current), Math.cos(target - current))
@@ -38,14 +43,18 @@ function boxCenter(wall, z, out) {
   return out
 }
 
-function sphereHitsBox(ball, wall, center) {
+function boxGap(ball, wall, center) {
   const wide = wall % 2 === 0
   const hx = wide ? HALF_WIDE : HALF_THIN
   const hy = wide ? HALF_THIN : HALF_WIDE
   const dx = Math.max(Math.abs(ball.x - center.x) - hx, 0)
   const dy = Math.max(Math.abs(ball.y - center.y) - hy, 0)
   const dz = Math.max(Math.abs(ball.z - center.z) - HALF_DEEP, 0)
-  return dx * dx + dy * dy + dz * dz < PLAYER_R * PLAYER_R
+  return Math.hypot(dx, dy, dz) - PLAYER_R
+}
+
+function sphereHitsBox(ball, wall, center) {
+  return boxGap(ball, wall, center) <= 0
 }
 
 function pickBlocked(count, avoid) {
@@ -83,6 +92,23 @@ function createRuntime() {
     gid: 1,
     pid: 1,
     lastScore: -1,
+    mix: 0,
+    boost: 0,
+    dwell: 0,
+    suspicion: 0,
+    peekSide: 1,
+    peekKick: 0,
+    armedPeek: 0,
+    flinch: 0,
+    breath: 0,
+    sway: 1,
+    threat: 0,
+    threatX: 0,
+    threatY: 0,
+    recoil: 0,
+    rule: 0,
+    dutch: 0,
+    dutchSide: 1,
     gates: [],
     pulses: [],
     slots: Array.from({ length: POOL }, () => ({
@@ -93,7 +119,20 @@ function createRuntime() {
       color: COLORS[0],
       gateId: 0,
       lastPulse: 0,
+      lastWave: 0,
+      missed: false,
+      flash: 0,
     })),
+    waves: [],
+    wid: 1,
+    sparks: Array.from({ length: SPARKS }, () => ({
+      life: 0, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0,
+    })),
+    sparkCursor: 0,
+    combo: 0,
+    lastMiss: -10,
+    glitch: 0,
+    ruleLatch: 0,
   }
 }
 
@@ -113,12 +152,34 @@ function resetRuntime(state) {
   state.gid = 1
   state.pid = 1
   state.lastScore = -1
+  state.boost = 0
+  state.dwell = 0
+  state.suspicion = 0
+  state.peekKick = 0
+  state.armedPeek = 0
+  state.flinch = 0
+  state.sway = 1
+  state.threat = 0
+  state.threatX = 0
+  state.threatY = 0
+  state.recoil = 0
+  state.rule = 0
+  state.dutch = 0
+  state.combo = 0
+  state.lastMiss = -10
+  state.glitch = 0
+  state.ruleLatch = 0
   state.gates.length = 0
   state.pulses.length = 0
+  state.waves.length = 0
+  for (const spark of state.sparks) spark.life = 0
   for (const slot of state.slots) {
     slot.active = false
     slot.glow = 0
     slot.lastPulse = 0
+    slot.lastWave = 0
+    slot.missed = false
+    slot.flash = 0
   }
 }
 
@@ -131,6 +192,30 @@ function emitPulse(state, origin) {
   })
   state.pid += 1
   if (state.pulses.length > 4) state.pulses.shift()
+  state.waves.push({ id: state.wid, z: origin.z, life: 0 })
+  state.wid += 1
+  if (state.waves.length > 3) state.waves.shift()
+}
+
+function burstSparks(state, origin, count) {
+  for (let n = 0; n < count; n += 1) {
+    const spark = state.sparks[state.sparkCursor % SPARKS]
+    state.sparkCursor += 1
+    const angle = Math.random() * Math.PI * 2
+    const speed = 0.8 + Math.random() * 2.4
+    spark.life = 0.18 + Math.random() * 0.16
+    spark.x = origin.x
+    spark.y = origin.y
+    spark.z = origin.z
+    spark.vx = Math.cos(angle) * speed
+    spark.vy = Math.sin(angle) * speed
+    spark.vz = (Math.random() - 0.25) * 3.4
+  }
+}
+
+function tripGlitch(state, callbacks) {
+  state.glitch = 1
+  callbacks.current.onGlitch?.()
 }
 
 function spawnGate(state) {
@@ -150,6 +235,9 @@ function spawnGate(state) {
     slot.color = COLORS[colorIndex % COLORS.length]
     slot.gateId = gate.id
     slot.lastPulse = 0
+    slot.lastWave = 0
+    slot.missed = false
+    slot.flash = 0
     colorIndex += 1
   }
   state.gid += 1
@@ -157,23 +245,192 @@ function spawnGate(state) {
   state.nextSpawn += gap
 }
 
-function Scene({ active, runId, input, callbacks }) {
+function sectionLines() {
+  const s = WALL
+  const tick = 0.22
+  const pairs = [
+    [-s, -s, 0, s, -s, 0],
+    [s, -s, 0, s, s, 0],
+    [s, s, 0, -s, s, 0],
+    [-s, s, 0, -s, -s, 0],
+    [0, -s, 0, 0, -s - tick, 0],
+    [0, s, 0, 0, s + tick, 0],
+    [-s, 0, 0, -s - tick, 0, 0],
+    [s, 0, 0, s + tick, 0, 0],
+  ]
+  const geometry = new THREE.BufferGeometry()
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(pairs.flat(), 3))
+  return geometry
+}
+
+function draftLabel() {
+  const canvas = document.createElement('canvas')
+  canvas.width = 256
+  canvas.height = 64
+  const context = canvas.getContext('2d')
+  context.strokeStyle = '#8ee9ff'
+  context.lineWidth = 3
+  context.strokeRect(6, 8, 244, 48)
+  context.fillStyle = '#f4feff'
+  context.font = '600 26px Bahnschrift, Segoe UI, sans-serif'
+  context.fillText('1.70 × 0.52', 24, 42)
+  const texture = new THREE.CanvasTexture(canvas)
+  texture.colorSpace = THREE.SRGBColorSpace
+  const material = new THREE.SpriteMaterial({
+    map: texture,
+    transparent: true,
+    depthWrite: false,
+    toneMapped: false,
+  })
+  const sprite = new THREE.Sprite(material)
+  sprite.scale.set(1.8, 0.45, 1)
+  sprite.visible = false
+  return { sprite, texture, material }
+}
+
+function liveCamera(state, dt, focusing, v, signals) {
+  const external = Number(signals.rule) || 0
+  if (external) {
+    state.rule = Math.max(state.rule, Math.min(1, Math.abs(external)))
+    state.dutchSide = external < 0 ? -1 : 1
+  } else {
+    state.rule = Math.max(0, state.rule - dt * 0.42)
+  }
+  const dutchTarget = external ? Math.min(1, Math.abs(external)) : state.rule
+  const dutchLerp = dutchTarget > state.dutch ? 9 : 1.5
+  state.dutch += (dutchTarget - state.dutch) * Math.min(1, dt * dutchLerp)
+
+  state.dwell += dt
+  if (state.dwell > 3.35 && !state.armedPeek) {
+    state.peekSide = Math.sin(state.z * 0.17 + state.time) >= 0 ? 1 : -1
+    state.armedPeek = 1
+  }
+  const suspectTarget = state.dwell > 3.35 ? Math.min(1, (state.dwell - 3.35) / 2.1) : 0
+  const suspectLerp = state.flinch > 0 ? 9 : 1.2
+  state.suspicion += (suspectTarget - state.suspicion) * Math.min(1, dt * suspectLerp)
+  state.flinch = Math.max(0, state.flinch - dt * 2.4)
+  state.peekKick += (0 - state.peekKick) * Math.min(1, dt * 7)
+
+  const swayTarget = focusing ? 0 : 1
+  state.sway += (swayTarget - state.sway) * Math.min(1, dt * (focusing ? 14 : 2.6))
+  state.breath += dt * (0.82 + signals.drive * 0.4) * (0.12 + state.sway * 0.88)
+
+  if (signals.spike) state.recoil = 1
+  else state.recoil += (0 - state.recoil) * Math.min(1, dt * 2.5)
+
+  const dirx = signals.threat > 0.04 ? signals.dirx : 0
+  const diry = signals.threat > 0.04 ? signals.diry : 0
+  state.threat += (signals.threat - state.threat) * Math.min(1, dt * 4)
+  state.threatX += (dirx - state.threatX) * Math.min(1, dt * 3.4)
+  state.threatY += (diry - state.threatY) * Math.min(1, dt * 3.4)
+
+  v.right.crossVectors(v.up, v.forward).normalize()
+  const calm = focusing ? 0.05 : 1
+  const peek = state.suspicion * calm + state.peekKick
+  const breathe = Math.sin(state.breath * 1.6) * 0.055 * state.sway
+  const eye = Math.sin(state.breath * 0.67 + 0.4) * 0.03 * state.sway
+  const shake = signals.drive * signals.drive * 0.05 * state.sway
+  const lean = Math.tan(THREE.MathUtils.degToRad(4.4)) * 9 * state.threat * (focusing ? 0.4 : 1)
+
+  v.cam.addScaledVector(v.right, peek * 1.28 * state.peekSide + eye + Math.sin(state.time * 41) * shake)
+  v.cam.addScaledVector(v.up, Math.abs(peek) * 0.72 + breathe + Math.sin(state.time * 27 + 1.3) * shake * 0.7)
+  v.cam.z -= state.recoil * 1.22
+  v.look.addScaledVector(v.right, peek * 0.24 * state.peekSide + eye * 1.35)
+  v.look.addScaledVector(v.up, Math.cos(state.breath * 0.53) * 0.02 * state.sway)
+  v.look.x += state.threatX * lean
+  v.look.y += state.threatY * lean
+  v.look.z -= state.recoil * 0.28
+
+  const roll = THREE.MathUtils.clamp(
+    state.peekSide * state.suspicion * calm * THREE.MathUtils.degToRad(3.4)
+      + state.dutchSide * state.dutch * THREE.MathUtils.degToRad(8)
+      + Math.sign(state.threatX || 1) * state.threat * (focusing ? 0.35 : 1) * THREE.MathUtils.degToRad(3.2),
+    THREE.MathUtils.degToRad(-11),
+    THREE.MathUtils.degToRad(11),
+  )
+  v.rolled.copy(v.up).multiplyScalar(Math.cos(roll)).addScaledVector(v.right, Math.sin(roll))
+}
+
+function Scene({ active, runId, input, styleRef, callbacks }) {
   const tunnel = useMemo(() => {
     const { railGeo, ringGeo } = buildTunnelGeometry()
+    const line = (color) => new THREE.LineBasicMaterial({
+      color,
+      transparent: true,
+      opacity: 0.16,
+      toneMapped: false,
+      depthWrite: false,
+    })
     return {
       railGeo,
       ringGeo,
+      railEdges: new THREE.EdgesGeometry(railGeo, 20),
+      ringEdges: new THREE.EdgesGeometry(ringGeo, 20),
       rails: createTunnelMaterial('#00f3ff', 1),
       rings: createTunnelMaterial('#3d7eff', 1.15),
+      railLines: line('#d7fbff'),
+      ringLines: line('#7eb0ff'),
     }
+  }, [])
+
+  const boxEdges = useMemo(() => new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1)), [])
+  const sphereEdges = useMemo(() => new THREE.EdgesGeometry(new THREE.SphereGeometry(PLAYER_R, 14, 10)), [])
+  const axes = useMemo(() => {
+    const helper = new THREE.AxesHelper(0.62)
+    helper.visible = false
+    return helper
+  }, [])
+  const sectionGeo = useMemo(() => sectionLines(), [])
+  const label = useMemo(() => draftLabel(), [])
+  const arcGeo = useMemo(() => {
+    const geometry = new THREE.BufferGeometry()
+    geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(ARC * 3), 3))
+    return geometry
+  }, [])
+  const dimGeo = useMemo(() => {
+    const geometry = new THREE.BufferGeometry()
+    geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(18), 3))
+    return geometry
+  }, [])
+  const speckGeo = useMemo(() => {
+    const positions = new Float32Array(SPECKS * 3)
+    for (let i = 0; i < SPECKS; i += 1) {
+      const angle = Math.random() * Math.PI * 2
+      const radius = 0.35 + Math.random() * (WALL - 0.45)
+      positions[i * 3] = Math.cos(angle) * radius
+      positions[i * 3 + 1] = Math.sin(angle) * radius
+      positions[i * 3 + 2] = Math.random() * 70
+    }
+    const geometry = new THREE.BufferGeometry()
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+    return geometry
+  }, [])
+  const sparkGeo = useMemo(() => {
+    const geometry = new THREE.BufferGeometry()
+    geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(SPARKS * 3), 3))
+    geometry.setDrawRange(0, 0)
+    return geometry
   }, [])
 
   useEffect(() => () => {
     tunnel.railGeo.dispose()
     tunnel.ringGeo.dispose()
+    tunnel.railEdges.dispose()
+    tunnel.ringEdges.dispose()
     tunnel.rails.dispose()
     tunnel.rings.dispose()
-  }, [tunnel])
+    tunnel.railLines.dispose()
+    tunnel.ringLines.dispose()
+    boxEdges.dispose()
+    sphereEdges.dispose()
+    sectionGeo.dispose()
+    arcGeo.dispose()
+    dimGeo.dispose()
+    speckGeo.dispose()
+    sparkGeo.dispose()
+    label.texture.dispose()
+    label.material.dispose()
+  }, [arcGeo, boxEdges, dimGeo, label, sectionGeo, sparkGeo, speckGeo, sphereEdges, tunnel])
 
   const runtime = useRef(null)
   if (!runtime.current) runtime.current = createRuntime()
@@ -185,6 +442,15 @@ function Scene({ active, runId, input, callbacks }) {
   const pulseRefs = useRef([])
   const trailRefs = useRef([])
   const trailCursor = useRef(0)
+  const arcRef = useRef(null)
+  const sectionRef = useRef(null)
+  const wireRef = useRef(null)
+  const speckRef = useRef(null)
+  const dimRef = useRef(null)
+  const edgeRefs = useRef([])
+  const waveRefs = useRef([])
+  const sparkRef = useRef(null)
+  const chromaFx = useRef(null)
   const tmp = useRef({
     pos: new THREE.Vector3(),
     up: new THREE.Vector3(),
@@ -193,6 +459,9 @@ function Scene({ active, runId, input, callbacks }) {
     box: new THREE.Vector3(),
     gravity: new THREE.Vector3(0, -1, 0),
     sample: new THREE.Vector3(),
+    right: new THREE.Vector3(),
+    forward: new THREE.Vector3(0, 0, 1),
+    rolled: new THREE.Vector3(),
   })
 
   const { camera, size } = useThree()
@@ -206,6 +475,15 @@ function Scene({ active, runId, input, callbacks }) {
     if (active && state.runId !== runId) {
       resetRuntime(state)
       state.runId = runId
+      const specks = speckGeo.attributes.position.array
+      for (let i = 0; i < SPECKS; i += 1) {
+        const angle = (i / SPECKS) * Math.PI * 2
+        const radius = 0.4 + ((i * 17) % 10) * 0.1 * (WALL - 0.55)
+        specks[i * 3] = Math.cos(angle) * radius
+        specks[i * 3 + 1] = Math.sin(angle) * radius
+        specks[i * 3 + 2] = 6 + (i * 1.15) % 72
+      }
+      speckGeo.attributes.position.needsUpdate = true
     }
 
     const playing = active && state.runId === runId && state.alive
@@ -225,7 +503,8 @@ function Scene({ active, runId, input, callbacks }) {
       v.gravity.set(Math.sin(v.pos.x), -1, 0).normalize()
       v.up.set(-v.gravity.x, -v.gravity.y, 0)
       camera.up.set(0, 1, 0)
-      camera.position.set(0, v.pos.y + 1.35, -6.4)
+      state.breath += dt * 0.7
+      camera.position.set(0, v.pos.y + 1.35 + Math.sin(state.breath * 1.6) * 0.04, -6.4)
       camera.lookAt(0, v.pos.y + 0.2, 10)
       camera.fov = size.width < size.height ? 84 : 68
       camera.updateProjectionMatrix()
@@ -234,24 +513,75 @@ function Scene({ active, runId, input, callbacks }) {
       for (const mesh of obstacleRefs.current) if (mesh) mesh.visible = false
       for (const mesh of pulseRefs.current) if (mesh) mesh.visible = false
       for (const mesh of trailRefs.current) if (mesh) mesh.visible = false
+      if (arcRef.current) arcRef.current.visible = false
+      if (sectionRef.current) sectionRef.current.visible = false
+      if (dimRef.current) dimRef.current.visible = false
+      if (label.sprite) label.sprite.visible = false
+      for (const mesh of waveRefs.current) if (mesh) mesh.visible = false
+      if (sparkRef.current) sparkRef.current.visible = false
+      state.glitch = 0
+      const idleMixTarget = styleRef?.current === 'kontur' ? 1 : 0
+      state.mix += (idleMixTarget - state.mix) * Math.min(1, dt * 7)
+      tunnel.rails.uniforms.uGain.value = 1 - state.mix * 0.7
+      tunnel.rings.uniforms.uGain.value = 1.15 * (1 - state.mix * 0.7)
+      tunnel.railLines.opacity = state.mix * 0.92
+      tunnel.ringLines.opacity = state.mix * 0.8
+      if (wireRef.current) {
+        wireRef.current.visible = state.mix > 0.05
+        wireRef.current.material.opacity = 0.3 + state.mix * 0.7
+      }
+      axes.visible = state.mix > 0.3
+      axes.position.copy(v.pos)
       return
     }
 
     state.age += dt
     state.cooldown = Math.max(0, state.cooldown - dt)
+    const focusing = Boolean(input.current.focus)
+    const step = dt * (focusing ? 0.34 : 1)
 
     if (input.current.pending && state.cooldown <= 0) {
       const sign = input.current.sign
+      const immediate = input.current.immediate
       input.current.pending = false
-      state.targetWall = (state.targetWall + sign + 4) % 4
-      state.cooldown = 0.18
+      input.current.immediate = false
+      state.targetWall = (state.targetWall + sign + 8) % 4
+      state.dwell = 0
+      state.armedPeek = 0
+      state.peekKick = -state.suspicion * state.peekSide
+      state.suspicion = 0
+      state.flinch = 1
+      if (Math.abs(sign) >= 2) {
+        state.rule = 1
+        state.dutchSide = sign > 0 ? 1 : -1
+      }
+      if (immediate) {
+        state.angle = state.targetWall * Math.PI * 0.5
+        state.angleVel = 0
+        state.cooldown = 0.1
+      } else {
+        state.cooldown = 0.18
+      }
       placeBall(state.z, state.angle, state.targetWall, v.pos)
       emitPulse(state, v.pos)
-      gravitySound()
+      burstSparks(state, v.pos, Math.abs(sign) >= 2 ? 16 : 10)
+      tripGlitch(state, callbacks)
+      gravitySound(sign)
       pulseSound()
       vibrate(12)
     } else if (input.current.pending) {
       input.current.pending = false
+      input.current.immediate = false
+    }
+
+    if (input.current.impulse) {
+      input.current.impulse = false
+      state.boost = 1
+      placeBall(state.z, state.angle, state.targetWall, v.pos)
+      emitPulse(state, v.pos)
+      impulseSound(Math.min(29, 13 + state.z * 0.011))
+      pulseSound()
+      vibrate(16)
     }
 
     if (!state.didIntro && state.age > 0.45) {
@@ -264,13 +594,15 @@ function Scene({ active, runId, input, callbacks }) {
     const target = state.targetWall * Math.PI * 0.5
     const diff = shortest(target, state.angle)
     const accel = diff * OMEGA * OMEGA - 2 * OMEGA * state.angleVel
-    state.angleVel = Math.max(-9, Math.min(9, state.angleVel + accel * dt))
-    state.angle += state.angleVel * dt
+    state.angleVel = Math.max(-9, Math.min(9, state.angleVel + accel * step))
+    state.angle += state.angleVel * step
 
-    const speed = Math.min(29, 13 + state.z * 0.011) * Math.min(1, 0.35 + state.age / 0.7)
+    const cruise = Math.min(29, 13 + state.z * 0.011) * Math.min(1, 0.35 + state.age / 0.7)
+    state.boost = Math.max(0, state.boost - dt * 1.4)
+    const speed = cruise * (1 + state.boost * 0.62)
     state.prevZ = state.z
-    state.z += speed * dt
-    setDrive(speed)
+    state.z += speed * step
+    setDrive(speed, focusing)
 
     while (state.nextSpawn < state.z + 95) spawnGate(state)
 
@@ -299,6 +631,53 @@ function Scene({ active, runId, input, callbacks }) {
       return
     }
 
+    let bestGap = 0.48
+    let bestMult = 0
+    let bestSlot = null
+    for (const slot of state.slots) {
+      if (!slot.active || slot.missed) continue
+      if (!(state.prevZ < slot.z && slot.z <= state.z)) continue
+      slot.missed = true
+      placeBall(slot.z, state.angle, state.targetWall, v.sample)
+      boxCenter(slot.wall, slot.z, v.box)
+      const gap = boxGap(v.sample, slot.wall, v.box)
+      if (gap > 0 && gap < bestGap) {
+        bestGap = gap
+        bestMult = gap < 0.18 ? 3 : 2
+        bestSlot = slot
+      }
+    }
+    if (bestMult && bestSlot) {
+      if (state.time - state.lastMiss > 2.8) state.combo = 0
+      state.combo = Math.min(8, state.combo + 1)
+      state.lastMiss = state.time
+      const points = (bestMult === 3 ? 40 : 18) * state.combo
+      state.bonus += points
+      bestSlot.flash = 1
+      nearMissSound(bestMult)
+      vibrate(18)
+      burstSparks(state, v.pos, 8)
+      tripGlitch(state, callbacks)
+      callbacks.current.onNearMiss?.({ mult: bestMult, points, combo: state.combo })
+      state.recoil = 1
+    }
+    if (input.current.glitch) {
+      input.current.glitch = 0
+      state.recoil = 1
+      placeBall(state.z, state.angle, state.targetWall, v.pos)
+      burstSparks(state, v.pos, 14)
+      tripGlitch(state, callbacks)
+    }
+    const externalRule = Number(input.current.rule) || 0
+    if (externalRule && !state.ruleLatch) {
+      state.ruleLatch = 1
+      placeBall(state.z, state.angle, state.targetWall, v.pos)
+      burstSparks(state, v.pos, 12)
+      tripGlitch(state, callbacks)
+    } else if (!externalRule) {
+      state.ruleLatch = 0
+    }
+
     for (let i = state.gates.length - 1; i >= 0; i -= 1) {
       const gate = state.gates[i]
       if (!gate.scored && state.z > gate.z + 1.15) {
@@ -316,12 +695,19 @@ function Scene({ active, runId, input, callbacks }) {
     }
 
     for (const pulse of state.pulses) {
-      pulse.age += dt
-      pulse.radius += dt * 38
+      pulse.age += step
+      pulse.radius += step * 38
     }
     for (let i = state.pulses.length - 1; i >= 0; i -= 1) {
       if (state.pulses[i].age > 2.4) state.pulses.splice(i, 1)
     }
+    for (let i = state.waves.length - 1; i >= 0; i -= 1) {
+      const wave = state.waves[i]
+      wave.z += step * 52
+      wave.life += step
+      if (wave.life > 1.55) state.waves.splice(i, 1)
+    }
+    state.glitch = Math.max(0, state.glitch - dt / 0.18)
 
     for (const slot of state.slots) {
       if (!slot.active) continue
@@ -337,7 +723,16 @@ function Scene({ active, runId, input, callbacks }) {
           slot.lastPulse = pulse.id
         }
       }
-      slot.glow = Math.max(0, slot.glow - dt / 3.4)
+      slot.glow = Math.max(0, slot.glow - step / 3.4)
+      slot.flash = Math.max(0, slot.flash - dt / 0.18)
+      for (const wave of state.waves) {
+        if (slot.lastWave === wave.id) continue
+        const reach = step * 52 + 1.2
+        if (slot.z <= wave.z + 0.4 && slot.z >= wave.z - reach) {
+          slot.glow = 1
+          slot.lastWave = wave.id
+        }
+      }
     }
 
     v.gravity.set(Math.sin(state.angle), -Math.cos(state.angle), 0)
@@ -345,14 +740,45 @@ function Scene({ active, runId, input, callbacks }) {
     const back = size.width < size.height ? 7.5 : 5.7
     v.cam.set(v.pos.x + v.up.x * 1.2, v.pos.y + v.up.y * 1.2, v.pos.z - back)
     v.look.set(v.pos.x + v.up.x * 0.28, v.pos.y + v.up.y * 0.28, v.pos.z + 9)
-    const fov = size.width < size.height ? 84 : 68
-    if (camera.fov !== fov) {
+    let threatScore = 0
+    let threatX = 0
+    let threatY = 0
+    for (const slot of state.slots) {
+      if (!slot.active) continue
+      const ahead = slot.z - state.z
+      if (ahead < 0.6 || ahead > 18) continue
+      const dark = slot.glow < 0.12 ? 1.4 : 0.72
+      const score = ((18 - ahead) / 18) * dark
+      if (score <= threatScore) continue
+      threatScore = score
+      const wallAngle = slot.wall * Math.PI * 0.5
+      threatX = Math.sin(wallAngle)
+      threatY = -Math.cos(wallAngle)
+    }
+    const drive = THREE.MathUtils.clamp((speed - 13) / 16, 0, 1)
+    liveCamera(state, dt, focusing, v, {
+      drive,
+      threat: Math.min(1, threatScore),
+      dirx: threatX,
+      diry: threatY,
+      spike: false,
+      rule: input.current.rule,
+    })
+    const fov = Math.min(98, (size.width < size.height ? 84 : 68) + drive * 14 - (focusing ? 8 : 0) + state.recoil * 3.2)
+    if (Math.abs(camera.fov - fov) > 0.12) {
       camera.fov = fov
       camera.updateProjectionMatrix()
     }
-    camera.up.copy(v.up)
+    camera.up.copy(v.rolled)
     camera.position.copy(v.cam)
     camera.lookAt(v.look)
+    if (chromaFx.current) {
+      const split = state.glitch
+      chromaFx.current.offset.set(
+        (Math.random() - 0.5) * 0.02 * split,
+        (Math.random() - 0.5) * 0.012 * split,
+      )
+    }
 
     const anchor = Math.floor(state.z / 8) * 8
     if (tunnelRef.current) tunnelRef.current.position.z = anchor
@@ -381,26 +807,175 @@ function Scene({ active, runId, input, callbacks }) {
       mesh.material.opacity = life * 0.28
     }
 
+    const want = styleRef?.current === 'kontur' ? 1 : 0
+    state.mix += (want - state.mix) * Math.min(1, dt * 7)
+    const mix = state.mix
+    const flash = state.glitch
+    tunnel.rails.uniforms.uGain.value = 1 - mix * 0.7 + flash * 0.85
+    tunnel.rings.uniforms.uGain.value = 1.15 * (1 - mix * 0.7) + flash * 0.7
+    tunnel.railLines.opacity = Math.min(1, mix * 0.92 + flash * 0.9)
+    tunnel.ringLines.opacity = Math.min(1, mix * 0.8 + flash * 0.75)
+    if (shellMat.current) {
+      shellMat.current.opacity = 1 - mix * 0.78
+      shellMat.current.depthWrite = mix < 0.8
+    }
+    if (wireRef.current) {
+      wireRef.current.visible = mix > 0.05
+      wireRef.current.material.opacity = 0.3 + mix * 0.7
+    }
+    axes.visible = mix > 0.3
+    axes.position.copy(v.pos)
+    if (sectionRef.current) {
+      sectionRef.current.visible = mix > 0.2
+      sectionRef.current.position.set(0, 0, state.z)
+      sectionRef.current.material.opacity = mix * 0.62
+    }
+
+    let nearest = null
+    let nearestAhead = 16
     for (let i = 0; i < state.slots.length; i += 1) {
       const mesh = obstacleRefs.current[i]
       const slot = state.slots[i]
+      const edge = edgeRefs.current[i]
       if (!mesh) continue
       if (!slot.active) {
         mesh.visible = false
+        if (edge) edge.visible = false
         continue
       }
       const ahead = slot.z - state.z
       const fade = 1 - THREE.MathUtils.smoothstep(ahead, 26, 78)
       const glow = slot.glow * fade
-      mesh.visible = glow > 0.03
-      if (!mesh.visible) continue
+      const close = ahead < 16 && ahead > -0.8
+      const showEdge = mix > 0.08 || close || glow > 0.15 || slot.flash > 0.04
+      const showFill = glow > 0.03
+      mesh.visible = showFill || showEdge
+      if (!mesh.visible) {
+        if (edge) edge.visible = false
+        continue
+      }
       boxCenter(slot.wall, slot.z, v.box)
       mesh.position.copy(v.box)
       if (slot.wall % 2 === 0) mesh.scale.set(1.7, 0.52, 1.28)
       else mesh.scale.set(0.52, 1.7, 1.28)
       mesh.material.emissive.set(slot.color)
-      mesh.material.opacity = Math.min(1, glow * 1.2)
+      mesh.material.opacity = showFill ? Math.min(1, glow * 1.2) * (1 - mix * 0.72) : 0
+      mesh.material.depthWrite = mesh.material.opacity > 0.25
       mesh.material.emissiveIntensity = 1.4 + glow * 6
+      if (edge) {
+        const hot = close || slot.flash > 0.04
+        edge.visible = showEdge || slot.flash > 0.04
+        edge.material.color.set(slot.flash > 0.04 ? '#fff1a8' : hot ? '#ff4d6a' : '#d9fbff')
+        edge.material.opacity = Math.min(1, (hot ? 0.96 : 0.16 + mix * 0.62) + slot.flash)
+      }
+      if (close && ahead < nearestAhead) {
+        nearestAhead = ahead
+        nearest = slot
+      }
+    }
+
+    if (dimRef.current && nearest) {
+      boxCenter(nearest.wall, nearest.z, v.box)
+      const wide = nearest.wall % 2 === 0
+      const half = 0.85
+      const points = dimGeo.attributes.position.array
+      const tick = 0.16
+      const x = v.box.x
+      const y = v.box.y
+      const z = v.box.z
+      const write = (index, px, py, pz) => {
+        points[index] = px
+        points[index + 1] = py
+        points[index + 2] = pz
+      }
+      if (wide) {
+        write(0, x - half, y, z)
+        write(3, x + half, y, z)
+        write(6, x - half, y - tick, z)
+        write(9, x - half, y + tick, z)
+        write(12, x + half, y - tick, z)
+        write(15, x + half, y + tick, z)
+      } else {
+        write(0, x, y - half, z)
+        write(3, x, y + half, z)
+        write(6, x - tick, y - half, z)
+        write(9, x + tick, y - half, z)
+        write(12, x - tick, y + half, z)
+        write(15, x + tick, y + half, z)
+      }
+      dimGeo.attributes.position.needsUpdate = true
+      dimRef.current.visible = true
+      label.sprite.visible = true
+      label.sprite.position.set(x, y + (wide ? 0.62 : 0), z - 0.15)
+      label.sprite.material.opacity = 0.35 + mix * 0.65
+    } else {
+      if (dimRef.current) dimRef.current.visible = false
+      label.sprite.visible = false
+    }
+
+    if (arcRef.current) {
+      let arcAngle = state.angle
+      let arcVel = state.angleVel
+      let arcZ = state.z
+      const arcSpeed = cruise * (1 + state.boost * 0.62)
+      const positions = arcGeo.attributes.position.array
+      const stride = 0.045
+      for (let i = 0; i < ARC; i += 1) {
+        const turn = shortest(target, arcAngle)
+        const push = turn * OMEGA * OMEGA - 2 * OMEGA * arcVel
+        arcVel = Math.max(-9, Math.min(9, arcVel + push * stride))
+        arcAngle += arcVel * stride
+        arcZ += arcSpeed * stride
+        positions[i * 3] = Math.sin(arcAngle) * STICK
+        positions[i * 3 + 1] = -Math.cos(arcAngle) * STICK
+        positions[i * 3 + 2] = arcZ
+      }
+      arcGeo.attributes.position.needsUpdate = true
+      arcRef.current.computeLineDistances()
+      arcRef.current.visible = true
+    }
+
+    const specks = speckGeo.attributes.position.array
+    for (let i = 0; i < SPECKS; i += 1) {
+      specks[i * 3 + 2] -= speed * step * (0.45 + (i % 5) * 0.09)
+      if (specks[i * 3 + 2] < state.z - 8) specks[i * 3 + 2] += 82
+    }
+    speckGeo.attributes.position.needsUpdate = true
+    if (speckRef.current) {
+      speckRef.current.material.opacity = (0.14 + drive * 0.62) * (focusing ? 0.55 : 1)
+      speckRef.current.material.size = 0.04 + drive * 0.08
+    }
+
+    const sparkPos = sparkGeo.attributes.position.array
+    let sparkCount = 0
+    for (const spark of state.sparks) {
+      if (spark.life <= 0) continue
+      spark.life -= dt
+      if (spark.life <= 0) continue
+      spark.x += spark.vx * dt * 8
+      spark.y += spark.vy * dt * 8
+      spark.z += spark.vz * dt * 8
+      sparkPos[sparkCount * 3] = spark.x
+      sparkPos[sparkCount * 3 + 1] = spark.y
+      sparkPos[sparkCount * 3 + 2] = spark.z
+      sparkCount += 1
+    }
+    sparkGeo.setDrawRange(0, sparkCount)
+    sparkGeo.attributes.position.needsUpdate = true
+    if (sparkRef.current) sparkRef.current.visible = sparkCount > 0
+
+    for (let i = 0; i < waveRefs.current.length; i += 1) {
+      const mesh = waveRefs.current[i]
+      const wave = state.waves[state.waves.length - 1 - i]
+      if (!mesh) continue
+      if (!wave) {
+        mesh.visible = false
+        continue
+      }
+      mesh.visible = true
+      mesh.position.set(0, 0, wave.z)
+      const fade = Math.max(0, 1 - wave.life / 1.55)
+      mesh.material.opacity = 0.25 + fade * 0.7
     }
 
     for (let i = 0; i < pulseRefs.current.length; i += 1) {
@@ -426,7 +1001,40 @@ function Scene({ active, runId, input, callbacks }) {
       <group ref={tunnelRef} dispose={null}>
         <mesh geometry={tunnel.railGeo} material={tunnel.rails} dispose={null} />
         <mesh geometry={tunnel.ringGeo} material={tunnel.rings} dispose={null} />
+        <lineSegments geometry={tunnel.railEdges} material={tunnel.railLines} />
+        <lineSegments geometry={tunnel.ringEdges} material={tunnel.ringLines} />
       </group>
+
+      <primitive object={axes} />
+      <primitive object={label.sprite} />
+      <lineSegments ref={sectionRef} geometry={sectionGeo} visible={false}>
+        <lineBasicMaterial color="#7eb6ff" transparent opacity={0.4} toneMapped={false} depthWrite={false} />
+      </lineSegments>
+      <lineSegments ref={dimRef} geometry={dimGeo} visible={false} frustumCulled={false}>
+        <lineBasicMaterial color="#ff4d6a" transparent opacity={0.92} toneMapped={false} depthWrite={false} />
+      </lineSegments>
+      <line ref={arcRef} geometry={arcGeo} visible={false} frustumCulled={false}>
+        <lineDashedMaterial
+          color="#9af6ff"
+          dashSize={0.34}
+          gapSize={0.18}
+          transparent
+          opacity={0.88}
+          toneMapped={false}
+          depthWrite={false}
+        />
+      </line>
+      <points ref={speckRef} geometry={speckGeo} frustumCulled={false}>
+        <pointsMaterial
+          color="#bff7ff"
+          size={0.055}
+          transparent
+          opacity={0.2}
+          depthWrite={false}
+          toneMapped={false}
+          sizeAttenuation
+        />
+      </points>
 
       <group ref={playerRef}>
         <mesh>
@@ -438,9 +1046,13 @@ function Scene({ active, runId, input, callbacks }) {
             emissiveIntensity={3.4}
             roughness={0.18}
             metalness={0.15}
+            transparent
             toneMapped={false}
           />
         </mesh>
+        <lineSegments ref={wireRef} geometry={sphereEdges}>
+          <lineBasicMaterial color="#e7fbff" transparent opacity={0.15} toneMapped={false} />
+        </lineSegments>
         <mesh>
           <sphereGeometry args={[PLAYER_R * 0.42, 20, 14]} />
           <meshBasicMaterial color="#ff2bd6" toneMapped={false} />
@@ -451,7 +1063,7 @@ function Scene({ active, runId, input, callbacks }) {
 
       {Array.from({ length: 8 }, (_, i) => (
         <mesh key={`trail-${i}`} ref={(node) => { trailRefs.current[i] = node }} visible={false}>
-          <sphereGeometry args={[PLAYER_R * 0.72, 12, 10]} />
+          <ringGeometry args={[0.16, 0.22, 18]} />
           <meshBasicMaterial
             color="#00f3ff"
             transparent
@@ -476,8 +1088,46 @@ function Scene({ active, runId, input, callbacks }) {
             metalness={0}
             toneMapped={false}
           />
+          <lineSegments
+            ref={(node) => { edgeRefs.current[i] = node }}
+            geometry={boxEdges}
+          >
+            <lineBasicMaterial
+              color="#d9fbff"
+              transparent
+              opacity={0.35}
+              toneMapped={false}
+              depthWrite={false}
+            />
+          </lineSegments>
         </mesh>
       ))}
+
+      {Array.from({ length: 3 }, (_, i) => (
+        <mesh key={`wave-${i}`} ref={(node) => { waveRefs.current[i] = node }} visible={false}>
+          <torusGeometry args={[1.9, 0.03, 6, 40]} />
+          <meshBasicMaterial
+            color="#bff8ff"
+            transparent
+            opacity={0.8}
+            blending={THREE.AdditiveBlending}
+            depthWrite={false}
+            toneMapped={false}
+          />
+        </mesh>
+      ))}
+
+      <points ref={sparkRef} geometry={sparkGeo} frustumCulled={false} visible={false}>
+        <pointsMaterial
+          color="#f4fdff"
+          size={0.07}
+          transparent
+          opacity={0.9}
+          depthWrite={false}
+          toneMapped={false}
+          sizeAttenuation
+        />
+      </points>
 
       {Array.from({ length: 3 }, (_, i) => (
         <group key={`pulse-${i}`} ref={(node) => { pulseRefs.current[i] = node }} visible={false}>
@@ -532,15 +1182,18 @@ function Scene({ active, runId, input, callbacks }) {
           mipmapBlur={false}
           radius={0.55}
         />
+        <ChromaticAberration ref={chromaFx} offset={[0, 0]} radialModulation modulationOffset={0.15} />
       </EffectComposer>
     </>
   )
 }
 
-function WorldCanvas({ active, runId, input, onScore, onCrash }) {
-  const callbacks = useRef({ onScore, onCrash })
+function WorldCanvas({ active, runId, input, styleRef, onScore, onCrash, onNearMiss, onGlitch }) {
+  const callbacks = useRef({ onScore, onCrash, onNearMiss, onGlitch })
   callbacks.current.onScore = onScore
   callbacks.current.onCrash = onCrash
+  callbacks.current.onNearMiss = onNearMiss
+  callbacks.current.onGlitch = onGlitch
 
   return (
     <Canvas
@@ -558,7 +1211,7 @@ function WorldCanvas({ active, runId, input, onScore, onCrash }) {
         gl.setClearColor(0x000000, 1)
       }}
     >
-      <Scene active={active} runId={runId} input={input} callbacks={callbacks} />
+      <Scene active={active} runId={runId} input={input} styleRef={styleRef} callbacks={callbacks} />
     </Canvas>
   )
 }
