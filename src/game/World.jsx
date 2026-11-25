@@ -5,6 +5,7 @@ import * as THREE from 'three'
 import {
   crashSound,
   clickShiftSound,
+  curseSting,
   debtClearSound,
   debtStrikeSound,
   decoySound,
@@ -34,6 +35,7 @@ import { COLORS, PLAYER_R, POOL, STICK, WALL } from './constants.js'
 import { buildTunnelGeometry, createTunnelMaterial, syncTunnel } from './tunnel.js'
 import { ABYSS_TINT, stepAbyss } from './abyss.js'
 import { applyTremor, createTremor, resetTremor, stepTremor } from './tremor.js'
+import { applyCurse, createCurse, curseBoon, curseScore, resetCurse, stepCurse } from './curse.js'
 
 const HALF_THIN = 0.26
 const HALF_WIDE = 0.85
@@ -247,6 +249,7 @@ function createRuntime() {
     abyssSnap: 0,
     mirage: 0,
     tremor: createTremor(),
+    curse: createCurse(),
     lodApplied: -1,
   }
 }
@@ -335,6 +338,7 @@ function resetRuntime(state) {
   state.abyssSnap = 0
   state.mirage = 0
   resetTremor(state.tremor)
+  resetCurse(state.curse)
   for (const decoy of state.decoys) decoy.on = false
   state.gates.length = 0
   state.pulses.length = 0
@@ -797,6 +801,7 @@ function liveCamera(state, dt, focusing, v, signals) {
   if (state.loan === 'repay') state.suspicion = Math.max(state.suspicion, 0.96)
   if (state.surge > 0) state.suspicion = Math.max(state.suspicion, 0.92)
   if (state.abyssWatch > 0) state.suspicion = Math.max(state.suspicion, state.abyssWatch)
+  if (state.curse.watch > 0) state.suspicion = Math.max(state.suspicion, state.curse.watch)
   const swayTarget = (focusing || state.loan === 'slow') ? 0 : (state.loan === 'repay' ? 0.4 : (state.surge > 0 ? 0.22 : 1))
   state.sway += (swayTarget - state.sway) * Math.min(1, dt * (focusing || debt ? 14 : 2.6))
   state.breath += dt * (0.82 + signals.drive * 0.4) * (0.12 + state.sway * 0.88)
@@ -1191,6 +1196,7 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
     if (signed < 0) speed = -Math.abs(cruise) * 0.58
     stepAbyss(state, dt, callbacks)
     if (signed > 0 && state.abyssMul > 1) speed *= state.abyssMul
+    if (signed > 0 && state.curse.rush > 1) speed *= state.curse.rush
     state.prevZ = state.z
     const motion = state.rewind > 0 ? dt : step
     const stopping = state.hitStop > 0
@@ -1257,7 +1263,7 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
       state.surgeClean = false
       state.crashed = true
       state.alive = false
-      const crashedScore = Math.floor(state.z * 0.45 + state.bonus)
+      const crashedScore = Math.floor(curseScore(state.curse, state.z * 0.45 + state.bonus))
       if (state.loan !== 'idle') {
         debtStrikeSound()
         tripGlitch(state, callbacks)
@@ -1358,6 +1364,11 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
       state.lastMiss = state.time
       const points = (bestMult === 3 ? 40 : 18) * state.combo
       state.bonus += points
+      const nearBoon = curseBoon(state.curse, true)
+      if (nearBoon) {
+        state.bonus += nearBoon
+        callbacks.current.onCurse?.({ phase: 'gift', points: nearBoon })
+      }
       bestSlot.flash = 1
       state.hitStop = 0.03
       emitPulse(state, v.pos)
@@ -1393,11 +1404,35 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
         gate.scored = true
         state.bonus += 25
         passSound()
+        const gateDanger = state.surge > 0 || state.heart > 0 || state.lie > 0 || state.witness.on || state.strain > 0.4
+        const gateBoon = curseBoon(state.curse, gateDanger)
+        if (gateBoon) {
+          state.bonus += gateBoon
+          callbacks.current.onCurse?.({ phase: 'gift', points: gateBoon })
+        }
       }
       if (gate.z < state.z - 12) state.gates.splice(i, 1)
     }
 
-    const total = Math.floor(state.z * 0.45 + state.bonus)
+    const raw = state.z * 0.45 + state.bonus
+    stepCurse(state.curse, raw, dt, state.lod)
+    if (state.curse.forceLie) {
+      state.curse.forceLie = 0
+      state.lieClock = 0
+    }
+    if (state.curse.press > 0) {
+      if (state.lie <= 0) state.lieCd = Math.max(0, state.lieCd - dt * state.curse.press)
+      if (!state.witness.on) state.witness.cd = Math.max(0, state.witness.cd - dt * state.curse.press)
+    }
+    if (state.curse.sting) {
+      state.curse.sting = 0
+      curseSting()
+      emitPulse(state, v.pos)
+      burstSparks(state, v.pos, state.lod ? 5 : 12)
+      tripGlitch(state, callbacks)
+      state.curse.banner = 1
+    }
+    const total = Math.floor(curseScore(state.curse, raw))
     if (total !== state.lastScore) {
       state.lastScore = total
       callbacks.current.onScore(total)
@@ -1426,6 +1461,10 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
       tremor.cueSent = 0
       callbacks.current.onTremor?.({ phase: 'calm' })
     }
+    if (state.curse.banner) {
+      state.curse.banner = 0
+      callbacks.current.onCurse?.({ phase: 'awaken' })
+    }
 
     for (const pulse of state.pulses) {
       pulse.age += step
@@ -1443,6 +1482,7 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
     state.glitch = Math.max(0, state.glitch - dt / 0.18)
     if (state.abyssGlitch > 0) state.glitch = Math.max(state.glitch, state.abyssGlitch)
     if (state.tremor.glint > 0) state.glitch = Math.max(state.glitch, state.tremor.glint)
+    if (state.curse.glint > 0) state.glitch = Math.max(state.glitch, state.curse.glint)
 
     for (const slot of state.slots) {
       if (!slot.active) continue
@@ -1508,6 +1548,11 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
     const moodTarget = THREE.MathUtils.clamp(0.2 + drive * 0.48 + streak * 0.38 - state.strain * 0.42, 0.06, 1)
     state.mood += (moodTarget - state.mood) * Math.min(1, dt * 1.7)
     state.strain = Math.max(0, state.strain - dt * 0.07)
+    if (state.curse.on && state.strain > state.curse.strainPrev + 0.18) {
+      state.curse.impulse = Math.max(state.curse.impulse, state.lod ? 0.34 : 0.72)
+      state.glitch = Math.max(state.glitch, state.lod ? 0.28 : 0.58)
+    }
+    state.curse.strainPrev = state.strain
     state.rhythm = 0.55 + drive * 1.35 + streak * 0.7 + (state.loan === 'repay' ? 1 : 0) + (state.surge > 0 ? 0.95 : 0)
     state.rhythm += state.abyssPush || 0
     const pack = state.moodPack
@@ -1526,13 +1571,15 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
     sig.rule = input.current.rule
     liveCamera(state, dt, focusing, v, sig)
     applyTremor(state.tremor, state.time, v)
+    applyCurse(state.curse, state.time, v)
     const loanFov = state.loan === 'slow' ? -11 : state.loan === 'repay' ? 10 : 0
     const heartFov = state.heart > 0 ? (state.heartFlash > 0.02 ? 6 : -8) : 0
     const surgeFov = state.surge > 0 ? 7 : 0
     const kickFov = state.fovKick > 0 ? 6 * (state.fovKick / 0.032) : 0
     const abyssFov = (state.abyssCold || 0) * 3
     const tremorFov = state.tremor.fov * 18 + state.tremor.amp * (state.lod ? 0.5 : 1.2)
-    const fov = Math.min(98, (size.width < size.height ? 84 : 68) + drive * 14 - (focusing ? 8 : 0) + loanFov + heartFov + surgeFov + kickFov + abyssFov + tremorFov + state.recoil * 3.2)
+    const curseFov = state.curse.on ? (state.lod ? -2.2 : -5) + state.curse.impulse * (state.lod ? 3 : 7) : 0
+    const fov = Math.min(98, (size.width < size.height ? 84 : 68) + drive * 14 - (focusing ? 8 : 0) + loanFov + heartFov + surgeFov + kickFov + abyssFov + tremorFov + curseFov + state.recoil * 3.2)
     if (Math.abs(camera.fov - fov) > 0.12) {
       camera.fov = fov
       camera.updateProjectionMatrix()
@@ -2166,8 +2213,8 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
   )
 }
 
-function WorldCanvas({ active, runId, input, styleRef, onScore, onCrash, onNearMiss, onGlitch, onEcho, onLoan, onDread, onTelemetry, onFps, onAbyss, onTremor }) {
-  const callbacks = useRef({ onScore, onCrash, onNearMiss, onGlitch, onEcho, onLoan, onDread, onTelemetry, onFps, onAbyss, onTremor })
+function WorldCanvas({ active, runId, input, styleRef, onScore, onCrash, onNearMiss, onGlitch, onEcho, onLoan, onDread, onTelemetry, onFps, onAbyss, onTremor, onCurse }) {
+  const callbacks = useRef({ onScore, onCrash, onNearMiss, onGlitch, onEcho, onLoan, onDread, onTelemetry, onFps, onAbyss, onTremor, onCurse })
   callbacks.current.onScore = onScore
   callbacks.current.onCrash = onCrash
   callbacks.current.onNearMiss = onNearMiss
@@ -2179,6 +2226,7 @@ function WorldCanvas({ active, runId, input, styleRef, onScore, onCrash, onNearM
   callbacks.current.onFps = onFps
   callbacks.current.onAbyss = onAbyss
   callbacks.current.onTremor = onTremor
+  callbacks.current.onCurse = onCurse
 
   return (
     <Canvas

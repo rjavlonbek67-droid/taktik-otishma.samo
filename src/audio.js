@@ -717,3 +717,17 @@ export function tremorBreach() {
   })
   noiseHit(0.14, 100, 0.4, 0.05)
 }
+
+export function curseSting() {
+  unlock()
+  burst({
+    type: 'sawtooth',
+    from: 62,
+    to: 28,
+    dur: 0.42,
+    peak: 0.12,
+    filterFreq: 190,
+    filterTo: 40,
+  })
+  wetTone({ type: 'sine', from: 96, to: 42, dur: 0.48, peak: 0.055 })
+}

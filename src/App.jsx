@@ -39,6 +39,7 @@ export default function App() {
   const [fps, setFps] = useState(0)
   const [abyss, setAbyss] = useState(null)
   const [tremorCue, setTremorCue] = useState(false)
+  const [cursed, setCursed] = useState(false)
   const phaseRef = useRef(phase)
   const styleRef = useRef(style)
   const input = useRef({
@@ -130,6 +131,7 @@ export default function App() {
     setDread(null)
     setAbyss(null)
     setTremorCue(false)
+    setCursed(false)
     setScore(0)
     setMiss(null)
     setRunId((value) => value + 1)
@@ -213,6 +215,15 @@ export default function App() {
       flashUltra('hit', '1000', 'CHEGARA BUZILDI', 1200)
     }
   }, [flashUltra])
+
+  const onCurse = useCallback((info) => {
+    if (info.phase === 'awaken') {
+      setCursed(true)
+      flashUltra('hit', '1000+', "LA'NATLANGAN MUKOFOT", 1400)
+    } else if (info.phase === 'gift') {
+      showNote(`MUKOFOT +${info.points}`, 700)
+    }
+  }, [flashUltra, showNote])
 
   const onDread = useCallback((info) => {
     if (info.phase === 'fracture') {
@@ -443,7 +454,7 @@ export default function App() {
   return (
     <div
       ref={appRef}
-      className={`app${phase === 'play' ? ' is-play' : ''}${focusUi ? ' is-focus' : ''}${loanPhase === 'slow' ? ' is-loan' : ''}${loanPhase === 'repay' ? ' is-repay' : ''}${dread === 'heart' ? ' is-heart' : ''}${dread === 'rewind' ? ' is-rewind' : ''}${dread === 'surge' ? ' is-surge' : ''}${abyss?.hot ? ' is-abyss' : ''}`}
+      className={`app${phase === 'play' ? ' is-play' : ''}${focusUi ? ' is-focus' : ''}${loanPhase === 'slow' ? ' is-loan' : ''}${loanPhase === 'repay' ? ' is-repay' : ''}${dread === 'heart' ? ' is-heart' : ''}${dread === 'rewind' ? ' is-rewind' : ''}${dread === 'surge' ? ' is-surge' : ''}${abyss?.hot ? ' is-abyss' : ''}${cursed ? ' is-curse' : ''}`}
       onContextMenu={(event) => event.preventDefault()}
     >
       <World
@@ -462,6 +473,7 @@ export default function App() {
         onFps={setFps}
         onAbyss={onAbyss}
         onTremor={onTremor}
+        onCurse={onCurse}
       />
 
       <button
@@ -486,6 +498,8 @@ export default function App() {
         <div className={abyss.hot ? 'abyss is-hot' : 'abyss'}>{abyss.text}</div>
       )}
       {phase === 'play' && tremorCue && <div className="tremor-cue">1000</div>}
+      {phase === 'play' && cursed && <div className="curse-chip">LA'NAT ×1.35</div>}
+      {phase === 'play' && cursed && <div className="curse-veil" />}
       {phase === 'play' && tele && (
         <div className={tele.lie ? 'tele is-lie' : 'tele'}>
           <span>TEZ<b>{tele.speed}</b></span>

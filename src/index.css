@@ -372,6 +372,29 @@ body,
   text-shadow: 0 0 16px #8eb4ff, 0 0 2px #ffffff;
 }
 
+.curse-chip {
+  position: absolute;
+  top: calc(env(safe-area-inset-top) + 118px);
+  left: 0;
+  right: 0;
+  z-index: 3;
+  text-align: center;
+  pointer-events: none;
+  color: #d7c4ff;
+  font-size: 0.66rem;
+  letter-spacing: 0.34em;
+  text-shadow: 0 0 12px #6a4cff;
+}
+
+.curse-veil {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  background: radial-gradient(circle at 50% 46%, transparent 26%, rgba(0, 0, 0, 0.78) 100%);
+  box-shadow: inset 0 0 90px rgba(0, 0, 0, 0.62);
+}
+
 .app.is-abyss .hud {
   text-shadow: 0 0 16px #6d8cff;
 }
