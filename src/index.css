@@ -819,31 +819,91 @@ html.is-read #root,
 
 .mark {
   position: absolute;
-  top: calc(env(safe-area-inset-top) + 54px);
+  top: calc(env(safe-area-inset-top) + 36px);
   left: 0;
   right: 0;
   z-index: 1;
-  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   pointer-events: none;
 }
 
-.mark b {
-  display: block;
-  color: #f4feff;
-  font-size: clamp(2rem, 10vw, 3.2rem);
-  font-weight: 500;
-  letter-spacing: 0.52em;
-  text-indent: 0.52em;
-  text-shadow: 0 0 18px rgba(0, 243, 255, 0.45);
+.mark .sigil {
+  width: min(88vw, 460px);
+  height: auto;
 }
 
 .mark small {
-  display: block;
-  margin-top: 4px;
+  margin-top: 2px;
   color: rgba(0, 243, 255, 0.78);
   font-size: 0.68rem;
   letter-spacing: 0.46em;
   text-indent: 0.46em;
+}
+
+.sigil-play {
+  position: absolute;
+  top: calc(env(safe-area-inset-top) + 4px);
+  left: 0;
+  right: 0;
+  z-index: 4;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.sigil-play .sigil {
+  width: 108px;
+  height: auto;
+}
+
+.sigil-dead {
+  position: absolute;
+  top: calc(env(safe-area-inset-top) + 18vh);
+  left: 0;
+  right: 0;
+  z-index: 6;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.sigil-dead .sigil,
+.finale-body .sigil {
+  width: min(72vw, 280px);
+  height: auto;
+}
+
+.app.is-play .hud {
+  top: calc(env(safe-area-inset-top) + 52px);
+}
+
+.sigil-letters path {
+  stroke-dasharray: 520;
+  stroke-dashoffset: var(--draw, 520);
+}
+
+.sigil-eye {
+  fill: none;
+  stroke: #f4feff;
+  stroke-width: 1.1;
+  stroke-linejoin: miter;
+}
+
+.sigil-reticle {
+  fill: none;
+  stroke: #7eefff;
+  stroke-width: 0.7;
+}
+
+.sigil-pupil {
+  fill: #f4feff;
+}
+
+.sigil-ghost {
+  stroke-linejoin: miter;
+  stroke-linecap: square;
 }
 
 .menu .stats,

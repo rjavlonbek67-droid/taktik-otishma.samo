@@ -6,6 +6,7 @@ import World from './game/World.jsx'
 import Blog from './blog/Blog.jsx'
 import ScreenFx from './fx/ScreenFx.jsx'
 import { pulseFx } from './fx/fxAudio.js'
+import KonturSigil from './fx/KonturSigil.jsx'
 
 const FINALE_LINES = [
   "1000 DAN O'TDING — LEKIN OXIRI YO'Q",
@@ -50,7 +51,9 @@ export default function App() {
   const [cursed, setCursed] = useState(false)
   const [finale, setFinale] = useState(null)
   const [launch, setLaunch] = useState(false)
+  const [sigilStrike, setSigilStrike] = useState(0)
   const launchTimer = useRef(0)
+  const scoreEdge = useRef(0)
   const phaseRef = useRef(phase)
   const styleRef = useRef(style)
   const input = useRef({
@@ -88,6 +91,11 @@ export default function App() {
   styleRef.current = style
 
   const remember = useCallback((value) => {
+    const prev = scoreEdge.current
+    scoreEdge.current = value
+    if ((prev < 500 && value >= 500) || (prev < 1000 && value >= 1000)) {
+      setSigilStrike((n) => n + 1)
+    }
     setScore(value)
     setBest((prev) => {
       if (value <= prev) return prev
@@ -145,6 +153,7 @@ export default function App() {
     setCursed(false)
     setFinale(null)
     setScore(0)
+    scoreEdge.current = 0
     setMiss(null)
     setRunId((value) => value + 1)
     setPhase('play')
@@ -155,6 +164,7 @@ export default function App() {
     if (launchTimer.current) return
     const ready = unlock()
     setLaunch(true)
+    setSigilStrike((n) => n + 1)
     Promise.resolve(ready).then(() => pulseFx('launch'))
     launchTimer.current = window.setTimeout(() => {
       launchTimer.current = 0
@@ -247,11 +257,14 @@ export default function App() {
   }, [flashUltra, showNote])
 
   const onTremor = useCallback((info) => {
-    if (info.phase === 'wall') flashUltra('hit', '500', 'BIRINCHI SINOV', 820)
-    else if (info.phase === 'near') setTremorCue(true)
+    if (info.phase === 'wall') {
+      setSigilStrike((n) => n + 1)
+      flashUltra('hit', '500', 'BIRINCHI SINOV', 820)
+    } else if (info.phase === 'near') setTremorCue(true)
     else if (info.phase === 'calm') setTremorCue(false)
     else if (info.phase === 'breach') {
       setTremorCue(false)
+      setSigilStrike((n) => n + 1)
       flashUltra('hit', '1000', 'CHEGARA BUZILDI', 1200)
     }
   }, [flashUltra])
@@ -284,6 +297,7 @@ export default function App() {
       showNote("O'LIK NUQTA", 800)
     } else if (info.phase === 'surge') {
       setDread('surge')
+      setSigilStrike((n) => n + 1)
       flashUltra('peak', 'QALTIS', 'SURGE', 1100)
     } else if (info.phase === 'surge-clear') {
       setDread((current) => (current === 'surge' ? null : current))
@@ -306,6 +320,7 @@ export default function App() {
   const onGlitch = useCallback(() => {
     const id = performance.now()
     setGlitch({ id })
+    setSigilStrike((n) => n + 1)
     window.clearTimeout(glitchTimer.current)
     glitchTimer.current = window.setTimeout(() => setGlitch(null), 190)
   }, [])
@@ -544,6 +559,14 @@ export default function App() {
         <span className={style === 'neon' ? 'on' : ''}>NEON</span>
       </button>
 
+      {phase === 'play' && (
+        <div className="sigil-play">
+          <KonturSigil
+            mood={cursed ? 'curse' : dread === 'surge' ? 'surge' : score >= 900 || (score >= 470 && score < 540) ? 'near' : 'idle'}
+            strike={sigilStrike}
+          />
+        </div>
+      )}
       {phase === 'play' && <div className="hud">{score}</div>}
       {phase === 'play' && abyss && (
         <div className={abyss.hot ? 'abyss is-hot' : 'abyss'}>{abyss.text}</div>
@@ -594,6 +617,9 @@ export default function App() {
         <>
           <ScreenFx mode="dead" />
           <div className="flash" />
+          <div className="sigil-dead">
+            <KonturSigil mood="near" hit />
+          </div>
         </>
       )}
       {phase === 'finale' && finale && (
@@ -603,6 +629,7 @@ export default function App() {
         >
           <ScreenFx mode="finale" />
           <div className="finale-body">
+            <KonturSigil mood="curse" hit strike={sigilStrike} />
             <p className="finale-kicker">1000+ DAHSHAT YAKUNI</p>
             <h1>{finale.line}</h1>
             <div className="finale-stats">
@@ -635,7 +662,7 @@ export default function App() {
         <div className="menu">
           <ScreenFx mode={launch ? 'launch' : 'menu'} />
           <div className="mark">
-            <b>SBP</b>
+            <KonturSigil mood={launch ? 'surge' : 'idle'} strike={sigilStrike} />
             <small>KONTUR</small>
           </div>
           <div className="stats">
