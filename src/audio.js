@@ -143,6 +143,85 @@ export function fxAllowed() {
   return ctx.state === 'running'
 }
 
+let tapBed = null
+
+function ensureTap() {
+  if (!fxAllowed()) return null
+  if (tapBed) return tapBed
+  const bus = audioBus()
+  if (!bus) return null
+  const { ctx: audio, master: out } = bus
+  const osc = audio.createOscillator()
+  const filter = audio.createBiquadFilter()
+  const gain = audio.createGain()
+  let pan = null
+  osc.type = 'triangle'
+  osc.frequency.value = 520
+  filter.type = 'bandpass'
+  filter.frequency.value = 980
+  filter.Q.value = 1.4
+  gain.gain.value = 0.0001
+  osc.connect(filter)
+  filter.connect(gain)
+  if (typeof audio.createStereoPanner === 'function') {
+    pan = audio.createStereoPanner()
+    pan.pan.value = 0
+    gain.connect(pan)
+    pan.connect(out)
+  } else {
+    gain.connect(out)
+  }
+  osc.start()
+  tapBed = { ctx: audio, osc, filter, gain, pan, next: 0 }
+  return tapBed
+}
+
+export function tapTick(side = 0) {
+  const graph = ensureTap()
+  if (!graph) return
+  const now = graph.ctx.currentTime
+  if (now < graph.next) return
+  graph.next = now + 0.06
+  const dur = 0.048
+  const { osc, filter, gain, pan } = graph
+  osc.frequency.cancelScheduledValues(now)
+  osc.frequency.setValueAtTime(640, now)
+  osc.frequency.exponentialRampToValueAtTime(360, now + dur)
+  filter.frequency.setTargetAtTime(920, now, 0.008)
+  gain.gain.cancelScheduledValues(now)
+  gain.gain.setValueAtTime(0.0001, now)
+  gain.gain.linearRampToValueAtTime(0.042, now + 0.006)
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + dur)
+  if (pan) {
+    const lean = Math.max(-0.4, Math.min(0.4, side * 0.22))
+    pan.pan.setTargetAtTime(lean, now, 0.01)
+  }
+}
+
+export function restTapAudio() {
+  if (!tapBed) return
+  const graph = tapBed
+  tapBed = null
+  const now = graph.ctx.currentTime
+  graph.gain.gain.cancelScheduledValues(now)
+  graph.gain.gain.setTargetAtTime(0.0001, now, 0.01)
+  try {
+    graph.osc.stop(now + 0.03)
+  } catch {
+    /* already stopped */
+  }
+  graph.osc.onended = () => {
+    try {
+      graph.osc.disconnect()
+      graph.filter.disconnect()
+      graph.gain.disconnect()
+      if (graph.pan) graph.pan.disconnect()
+    } catch {
+      /* already disconnected */
+    }
+  }
+}
+
 export function vibrate(ms) {
   try {
     navigator.vibrate?.(ms)
@@ -283,16 +362,7 @@ export function nearMissSound(mult) {
 }
 
 export function focusSound() {
-  unlock()
-  burst({
-    type: 'sine',
-    from: 480,
-    to: 860,
-    dur: 0.12,
-    peak: 0.04,
-    filterFreq: 2000,
-    filterTo: 900,
-  })
+  tapTick(0)
 }
 
 export function impulseSound(speed) {

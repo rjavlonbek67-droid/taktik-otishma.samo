@@ -4,26 +4,25 @@ import { Bloom, ChromaticAberration, EffectComposer } from '@react-three/postpro
 import * as THREE from 'three'
 import {
   crashSound,
-  clickShiftSound,
   curseSting,
   debtClearSound,
   debtStrikeSound,
   decoySound,
   echoSyncSound,
   echoWarnSound,
-  gravitySound,
-  impulseSound,
   heartSound,
   loanSound,
   nearMissSound,
   passSound,
   pulseSound,
   repaySound,
+  restTapAudio,
   rewindSound,
   setDrive,
   stopDrone,
   surgeClearSound,
   surgeSound,
+  tapTick,
   tremorBreach,
   tremorHeart,
   tremorHit,
@@ -1030,6 +1029,7 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
     if (!playing) {
       restPressure()
       restScaleAudio()
+      restTapAudio()
       const idle = state.time
       if (tunnelRef.current) tunnelRef.current.position.z = -((idle * 5) % 8)
       placeBall(0, Math.sin(idle * 0.35) * 0.04, 0, v.pos)
@@ -1135,9 +1135,7 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
       placeBall(state.z, state.angle, state.targetWall, v.pos)
       rememberEcho(state)
       emitPulse(state, v.pos)
-      clickShiftSound()
-      gravitySound(sign)
-      pulseSound()
+      tapTick(sign)
       vibrate(12)
     }
 
@@ -1146,8 +1144,7 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
       state.boost = 1
       placeBall(state.z, state.angle, state.targetWall, v.pos)
       emitPulse(state, v.pos)
-      impulseSound(Math.min(29, 13 + state.z * 0.011))
-      pulseSound()
+      tapTick(0)
       vibrate(16)
     }
 
@@ -1288,6 +1285,7 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
       stopDrone()
       restPressure()
       restScaleAudio()
+      restTapAudio()
       vibrate(48)
       callbacks.current.onCrash(crashedScore, state.curse.on ? 1 : 0)
       return
