@@ -464,6 +464,12 @@ html.is-read #root,
   text-shadow: 0 0 16px rgba(255, 43, 214, 0.45);
 }
 
+.blog-warn p + p {
+  margin-top: 10px;
+  font-size: clamp(1.02rem, 4.2vw, 1.2rem);
+  color: #f4feff;
+}
+
 .hud {
   position: absolute;
   top: calc(env(safe-area-inset-top) + 16px);

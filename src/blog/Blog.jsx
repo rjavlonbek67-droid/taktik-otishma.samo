@@ -3,9 +3,9 @@ import { useState } from 'react'
 const POST = {
   id: '1000-dread',
   index: '01',
-  tag: '1000+',
+  tag: '1000–3000',
   title: '1000 — bu tugash emas',
-  excerpt: 'Arvohing, vaqt qarzi, qora quti va devordagi ko‘z. Chegara ochiladi. Oxiri yo‘q.',
+  excerpt: 'Arvoh, qarz, qora quti va ko‘z. 1000 dan keyin hisob 2000 va 3000 ga boradi. Tezlik esa sekinlashadi.',
 }
 
 export default function Blog({ onClose }) {
@@ -116,20 +116,67 @@ export default function Blog({ onClose }) {
           </section>
 
           <section>
-            <p className="blog-code">&gt; CHEGARA · 1000+</p>
-            <h2>Mingdan keyin</h2>
+            <p className="blog-code">&gt; CHEGARA · LA'NAT</p>
+            <h2>1000+ mukofot va la’nat</h2>
             <p>
-              1000 ga yetish tugash emas. Ekran larzaga tushadi, chetlar qorayadi,
-              yolg‘on signal tez-tez yonadi. Mukofot bor: ball tezroq yig‘iladi.
-              La’nat ham bor: har bir xato og‘irroq, har bir jimlik qisqaroq.
-              Yiqilsang, oddiy menyu emas — dahshat yakuni ochiladi.
-              Yozuv shu yerda to‘xtamaydi. Oxiri yo‘q.
+              Chiziqni kesgan lahzada tunnel sovg‘a bermaydi. U bitim qiladi.
+              Ball shu yerdan tezroq yoziladi, xavfli darvoza va yaqin o‘tish
+              qo‘shimcha iz qoldiradi. Bu mukofot. La’nat shu bitimning ikkinchi yarmi:
+              chetlar qorayadi, yolg‘on signal tezroq qaytadi, kuzatuvchi jim turmaydi,
+              xato og‘irroq uriladi.
+            </p>
+            <p>
+              1000 dan o‘tib yiqilsang, oddiy chaqmoq va menyu emas. Dahshat yakuni ochiladi.
+              Yozuv o‘zgaradi: chegarani buzding, lekin oxiri yo‘q. Ekranda yakuniy ball
+              va mingdan qancha uzoqlagani turadi. Qayta bosish o‘qiladi. O‘yin to‘xtamaydi —
+              sen to‘xtagansan.
+            </p>
+          </section>
+
+          <section>
+            <p className="blog-code">&gt; MASSHTAB · 3000</p>
+            <h2>1000 dan 2000 ga, 2000 dan 3000 ga</h2>
+            <p>
+              Hisob 1000 da birinchi bosqichga qaytmaydi va nolga tushmaydi.
+              1500, 2000, 2500, 3000 — shu raqamlar yangi xarita emas, shu yugurishning
+              davomi. Har besh yuzda yengil belgi yonadi. Devor qo‘yilmaydi.
+              O‘yin pauzaga tushmaydi. Raqam shunchaki oldinga yozilaveradi.
+            </p>
+            <p>
+              1000 gacha tezlik va bosim avvalgidek tiklanadi. Undan keyin o‘sish
+              yumshoq egri chiziqqa o‘tadi: qo‘shimcha tezlik shiftga yaqinlashadi va
+              to‘xtaydi, darvozalar biroz nafas oladi, ovoz xom ball bilan birga
+              qichqirmaydi. Surge va qarzning o‘z zarbasi qoladi. Tunnel esa
+              2000 yoki 3000 da birdan adolatsiz xiralikka aylanmaydi.
+              Tajribali qo‘l shu raqamlarga yetishi mumkin. Sabrsiz qo‘l emas.
+            </p>
+          </section>
+
+          <section>
+            <p className="blog-code">&gt; QATLAMLAR · v3.0–v3.7</p>
+            <h2>Bitta tajriba, yetti qatlam</h2>
+            <p>
+              Logo endi yozuv emas. Kontur-Montur chizmasi: o‘qlar, kesilgan S, B, P,
+              markazda geometrik ko‘z. U chizilib chiqadi, kutishda nafas oladi,
+              500, 1000, Surge va glitchda qisqa zarba beradi. Menyu va yakuniy ekranda
+              yorug‘lik, zarracha va gorizontal sinish shu belgi atrofida turadi.
+              Ovoz fayli yo‘q. Web Audio impulslari chizilishga, ko‘zning torayishiga
+              va zarbaga yopishadi. Ovoz o‘chiq bo‘lsa, hammasi jim o‘tadi.
+            </p>
+            <p>
+              Bu qatlamlar to‘rtta eski mexanikani almashtirmaydi. Arvoh hali ham
+              sening eski harakating. Vaqt qarzi hali ham foiz bilan qaytadi.
+              Qora quti hali ham bir marta yolg‘on gapirishi mumkin. Kuzatuvchi
+              hali ham seni o‘qiydi. Logodagi ko‘z — o‘sha qarash, chizma nuqtasiga
+              tushirilgan. 1000 dan keyingi la’nat va 3000 gacha sekinlashgan masshtab
+              esa shu yugurishning ichida. Yangi o‘yin emas. Chuqurroq tunnel.
             </p>
           </section>
 
           <aside className="blog-warn">
             <span>KONTUR</span>
             <span>OGOHLANTIRISH</span>
+            <p>1000 — eshik. 2000 ga yet. Yoki 3000 ga.</p>
             <p>Sen necha ballgacha chidaysan?</p>
           </aside>
         </article>
