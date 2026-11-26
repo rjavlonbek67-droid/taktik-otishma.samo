@@ -1,3 +1,3 @@
-export const BUILD = 'v3.9-crisp-tap-audio'
-export const CACHE = 'oyin-sbp-v3.9-crisp-tap-audio'
-export const LABEL = 'SBP v3.9 • CRISP-TAP-AUDIO'
+export const BUILD = 'v3.10-mind-trap'
+export const CACHE = 'oyin-sbp-v3.10-mind-trap'
+export const LABEL = 'SBP v3.10 • MIND-TRAP'

@@ -290,6 +290,10 @@ export default function App() {
     scaleTimer.current = window.setTimeout(() => setScaleMark(null), 1100)
   }, [])
 
+  const onMind = useCallback((info) => {
+    if (info.phase === 'band') showNote(`${info.at} SINOV`, 900)
+  }, [showNote])
+
   const onDread = useCallback((info) => {
     if (info.phase === 'fracture') {
       setDread('rewind')
@@ -553,6 +557,7 @@ export default function App() {
         onTremor={onTremor}
         onCurse={onCurse}
         onScale={onScale}
+        onMind={onMind}
       />
 
       <button
