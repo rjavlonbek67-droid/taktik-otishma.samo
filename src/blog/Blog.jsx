@@ -11,16 +11,27 @@ const POST = {
 
 export default function Blog({ onClose }) {
   const [openId, setOpenId] = useState(null)
+  const [selectedId, setSelectedId] = useState(COURSES[0]?.id || null)
   const scroller = useRef(null)
+  const stamp = useRef(0)
   const course = COURSES.find((item) => item.id === openId) || null
   const back = (event) => {
+    event.preventDefault()
     event.stopPropagation()
     if (openId) setOpenId(null)
     else onClose()
   }
-  const read = (event, id) => {
+  const openLesson = (event, id) => {
+    event.preventDefault()
     event.stopPropagation()
-    setOpenId(id)
+    const lessonId = id || event.currentTarget?.getAttribute?.('data-lesson') || selectedId
+    const known = lessonId === 'archive' || COURSES.some((item) => item.id === lessonId)
+    if (!known) return
+    const now = performance.now()
+    if (now - stamp.current < 350) return
+    stamp.current = now
+    setSelectedId(lessonId)
+    setOpenId(lessonId)
   }
 
   useEffect(() => {
@@ -30,7 +41,7 @@ export default function Blog({ onClose }) {
   return (
     <div className="blog" ref={scroller}>
       <header className="blog-bar">
-        <button className="blog-back" type="button" onPointerDown={back}>
+        <button className="blog-back" type="button" onClick={back}>
           {openId ? 'RO‘YXAT' : 'YOPISH'}
         </button>
         <span>SBP // YOZUVLAR</span>
@@ -40,7 +51,7 @@ export default function Blog({ onClose }) {
         <section className="blog-list">
           <p className="blog-kicker">KONTUR ARXIV</p>
           <h1>Yozuvlar</h1>
-          <button className="blog-card" type="button" onPointerDown={(event) => read(event, 'archive')}>
+          <button className="blog-card" type="button" data-lesson="archive" onClick={(event) => openLesson(event, 'archive')}>
             <small>{POST.index} · {POST.tag}</small>
             <strong>{POST.title}</strong>
             <em>{POST.excerpt}</em>
@@ -49,16 +60,22 @@ export default function Blog({ onClose }) {
           <p className="blog-kicker blog-kicker-next">KURS</p>
           <h2 className="blog-sub">Modullar</h2>
           {COURSES.map((item) => (
-            <button
+            <article
               key={item.id}
-              className="blog-card"
-              type="button"
-              onPointerDown={(event) => read(event, item.id)}
+              className={`blog-card${selectedId === item.id ? ' is-on' : ''}`}
             >
               <small>{item.index} · {item.tag}</small>
               <strong>{item.title}</strong>
               <em>{item.excerpt}</em>
-            </button>
+              <button
+                className="course-start"
+                type="button"
+                data-lesson={item.id}
+                onClick={(event) => openLesson(event, item.id)}
+              >
+                BOSHLASH
+              </button>
+            </article>
           ))}
         </section>
       )}
@@ -205,7 +222,7 @@ export default function Blog({ onClose }) {
       )}
 
       {course && (
-        <article className="blog-post">
+        <article className="blog-post is-lesson">
           <p className="blog-kicker">DARS {course.index} · {course.tag}</p>
           <h1>{course.title}</h1>
           <p className="blog-lead">{course.lead}</p>
