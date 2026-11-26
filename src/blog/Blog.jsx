@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { COURSES } from './courses.js'
 
 const POST = {
   id: '1000-dread',
@@ -9,39 +10,60 @@ const POST = {
 }
 
 export default function Blog({ onClose }) {
-  const [open, setOpen] = useState(false)
+  const [openId, setOpenId] = useState(null)
+  const scroller = useRef(null)
+  const course = COURSES.find((item) => item.id === openId) || null
   const back = (event) => {
     event.stopPropagation()
-    if (open) setOpen(false)
+    if (openId) setOpenId(null)
     else onClose()
   }
-  const read = (event) => {
+  const read = (event, id) => {
     event.stopPropagation()
-    setOpen(true)
+    setOpenId(id)
   }
 
+  useEffect(() => {
+    if (scroller.current) scroller.current.scrollTop = 0
+  }, [openId])
+
   return (
-    <div className="blog">
+    <div className="blog" ref={scroller}>
       <header className="blog-bar">
         <button className="blog-back" type="button" onPointerDown={back}>
-          {open ? 'RO‘YXAT' : 'YOPISH'}
+          {openId ? 'RO‘YXAT' : 'YOPISH'}
         </button>
         <span>SBP // YOZUVLAR</span>
       </header>
 
-      {!open && (
+      {!openId && (
         <section className="blog-list">
           <p className="blog-kicker">KONTUR ARXIV</p>
           <h1>Yozuvlar</h1>
-          <button className="blog-card" type="button" onPointerDown={read}>
+          <button className="blog-card" type="button" onPointerDown={(event) => read(event, 'archive')}>
             <small>{POST.index} · {POST.tag}</small>
             <strong>{POST.title}</strong>
             <em>{POST.excerpt}</em>
           </button>
+
+          <p className="blog-kicker blog-kicker-next">KURS</p>
+          <h2 className="blog-sub">Modullar</h2>
+          {COURSES.map((item) => (
+            <button
+              key={item.id}
+              className="blog-card"
+              type="button"
+              onPointerDown={(event) => read(event, item.id)}
+            >
+              <small>{item.index} · {item.tag}</small>
+              <strong>{item.title}</strong>
+              <em>{item.excerpt}</em>
+            </button>
+          ))}
         </section>
       )}
 
-      {open && (
+      {openId === 'archive' && (
         <article className="blog-post">
           <p className="blog-kicker">YOZUV {POST.index} · {POST.tag}</p>
           <h1>{POST.title}</h1>
@@ -178,6 +200,40 @@ export default function Blog({ onClose }) {
             <span>OGOHLANTIRISH</span>
             <p>1000 — eshik. 2000 ga yet. Yoki 3000 ga.</p>
             <p>Sen necha ballgacha chidaysan?</p>
+          </aside>
+        </article>
+      )}
+
+      {course && (
+        <article className="blog-post">
+          <p className="blog-kicker">DARS {course.index} · {course.tag}</p>
+          <h1>{course.title}</h1>
+          <p className="blog-lead">{course.lead}</p>
+          {course.sections.map((section) => (
+            <section key={section.title}>
+              <p className="blog-code">{section.code}</p>
+              <h2>{section.title}</h2>
+              {section.paragraphs.map((paragraph) => (
+                <p key={paragraph}>{paragraph}</p>
+              ))}
+            </section>
+          ))}
+          <section>
+            <p className="blog-code">&gt; AMALIYOT</p>
+            <h2>Vazifalar</h2>
+            {course.tasks.map((task) => (
+              <div className="blog-task" key={task.title}>
+                <strong>{task.title}</strong>
+                <p>{task.body}</p>
+              </div>
+            ))}
+          </section>
+          <aside className="blog-warn">
+            <span>KURS</span>
+            <span>{course.index}</span>
+            {course.warn.map((line) => (
+              <p key={line}>{line}</p>
+            ))}
           </aside>
         </article>
       )}
