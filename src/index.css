@@ -557,6 +557,20 @@ html.is-read #root,
   text-shadow: 0 0 14px #6d8cff;
 }
 
+.scale-mark {
+  position: absolute;
+  top: calc(env(safe-area-inset-top) + 86px);
+  left: 0;
+  right: 0;
+  z-index: 3;
+  text-align: center;
+  pointer-events: none;
+  color: rgba(184, 244, 255, 0.92);
+  font-size: 0.72rem;
+  letter-spacing: 0.42em;
+  text-shadow: 0 0 10px rgba(0, 243, 255, 0.4);
+}
+
 .tremor-cue {
   position: absolute;
   top: calc(env(safe-area-inset-top) + 98px);

@@ -52,6 +52,7 @@ export default function App() {
   const [finale, setFinale] = useState(null)
   const [launch, setLaunch] = useState(false)
   const [sigilStrike, setSigilStrike] = useState(0)
+  const [scaleMark, setScaleMark] = useState(null)
   const launchTimer = useRef(0)
   const scoreEdge = useRef(0)
   const phaseRef = useRef(phase)
@@ -86,6 +87,7 @@ export default function App() {
   const glitchTimer = useRef(0)
   const noteTimer = useRef(0)
   const ultraTimer = useRef(0)
+  const scaleTimer = useRef(0)
 
   phaseRef.current = phase
   styleRef.current = style
@@ -152,6 +154,8 @@ export default function App() {
     setTremorCue(false)
     setCursed(false)
     setFinale(null)
+    setScaleMark(null)
+    window.clearTimeout(scaleTimer.current)
     setScore(0)
     scoreEdge.current = 0
     setMiss(null)
@@ -277,6 +281,14 @@ export default function App() {
       showNote(`MUKOFOT +${info.points}`, 700)
     }
   }, [flashUltra, showNote])
+
+  const onScale = useCallback((info) => {
+    if (info.phase !== 'mark') return
+    const id = performance.now()
+    setScaleMark({ id, at: info.at })
+    window.clearTimeout(scaleTimer.current)
+    scaleTimer.current = window.setTimeout(() => setScaleMark(null), 1100)
+  }, [])
 
   const onDread = useCallback((info) => {
     if (info.phase === 'fracture') {
@@ -540,6 +552,7 @@ export default function App() {
         onAbyss={onAbyss}
         onTremor={onTremor}
         onCurse={onCurse}
+        onScale={onScale}
       />
 
       <button
@@ -572,6 +585,9 @@ export default function App() {
         <div className={abyss.hot ? 'abyss is-hot' : 'abyss'}>{abyss.text}</div>
       )}
       {phase === 'play' && tremorCue && <div className="tremor-cue">1000</div>}
+      {phase === 'play' && scaleMark && (
+        <div key={scaleMark.id} className="scale-mark">{scaleMark.at}</div>
+      )}
       {phase === 'play' && cursed && <div className="curse-chip">LA'NAT ×1.35</div>}
       {phase === 'play' && cursed && <div className="curse-veil" />}
       {phase === 'play' && tele && (
