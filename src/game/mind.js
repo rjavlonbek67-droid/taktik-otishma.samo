@@ -65,6 +65,13 @@ export function createMind() {
   }
 }
 
+export function seedMind(mind, shown) {
+  resetMind(mind)
+  if (shown >= 3000) mind.band = 3000
+  else if (shown >= 2000) mind.band = 2000
+  else if (shown >= 1000) mind.band = 1000
+}
+
 export function resetMind(mind) {
   mind.lastSign = 0
   mind.run = 0

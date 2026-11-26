@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { finaleSting, focusSound, setMuted, startDrone, unlock } from './audio.js'
 import { LABEL } from './build.js'
-import { readBest, writeBest } from './game/constants.js'
+import { readBest, readCheckpoint, writeBest, writeCheckpoint } from './game/constants.js'
 import World from './game/World.jsx'
 import Blog from './blog/Blog.jsx'
 import ScreenFx from './fx/ScreenFx.jsx'
@@ -54,6 +54,8 @@ export default function App() {
   const [sigilStrike, setSigilStrike] = useState(0)
   const [silence, setSilence] = useState(false)
   const [scaleMark, setScaleMark] = useState(null)
+  const [unlocked, setUnlocked] = useState(readCheckpoint)
+  const [startAt, setStartAt] = useState(0)
   const launchTimer = useRef(0)
   const scoreEdge = useRef(0)
   const phaseRef = useRef(phase)
@@ -89,15 +91,28 @@ export default function App() {
   const noteTimer = useRef(0)
   const ultraTimer = useRef(0)
   const scaleTimer = useRef(0)
+  const spawnRef = useRef(0)
+  const startAtRef = useRef(0)
+  const unlockedRef = useRef(0)
 
   phaseRef.current = phase
   styleRef.current = style
+  startAtRef.current = startAt
+  unlockedRef.current = unlocked
 
   const remember = useCallback((value) => {
     const prev = scoreEdge.current
     scoreEdge.current = value
     if ((prev < 500 && value >= 500) || (prev < 1000 && value >= 1000)) {
       setSigilStrike((n) => n + 1)
+    }
+    if (value >= 1000) {
+      const band = Math.floor(value / 1000) * 1000
+      if (band > unlockedRef.current) {
+        const saved = writeCheckpoint(band) || band
+        unlockedRef.current = saved
+        setUnlocked(saved)
+      }
     }
     setScore(value)
     setBest((prev) => {
@@ -134,8 +149,12 @@ export default function App() {
     setFocusUi(false)
   }, [])
 
-  const start = useCallback(() => {
+  const start = useCallback((from = 0) => {
+    const band = from >= 1000 ? Math.floor(from / 1000) * 1000 : 0
+    const scoreAt = band > 0 && band <= unlockedRef.current ? band : 0
+    spawnRef.current = scoreAt
     window.clearTimeout(crashTimer.current)
+    window.clearTimeout(glitchTimer.current)
     clearHold()
     unlock()
     startDrone()
@@ -151,15 +170,16 @@ export default function App() {
     setUltra(null)
     setTele(null)
     setDread(null)
-    setAbyss(null)
     setTremorCue(false)
-    setCursed(false)
+    setCursed(scoreAt >= 1000)
+    setAbyss(scoreAt >= 1000 ? { text: '1000', hot: true } : null)
     setFinale(null)
+    setGlitch(null)
     setScaleMark(null)
     window.clearTimeout(scaleTimer.current)
     setSilence(false)
-    setScore(0)
-    scoreEdge.current = 0
+    setScore(scoreAt)
+    scoreEdge.current = scoreAt
     setMiss(null)
     setRunId((value) => value + 1)
     setPhase('play')
@@ -175,7 +195,7 @@ export default function App() {
     launchTimer.current = window.setTimeout(() => {
       launchTimer.current = 0
       setLaunch(false)
-      start()
+      start(startAtRef.current)
     }, 260)
   }
 
@@ -560,6 +580,7 @@ export default function App() {
         runId={runId}
         input={input}
         styleRef={styleRef}
+        spawnRef={spawnRef}
         onScore={remember}
         onCrash={onCrash}
         onNearMiss={onNearMiss}
@@ -685,7 +706,7 @@ export default function App() {
               type="button"
               onPointerDown={(event) => {
                 event.stopPropagation()
-                start()
+                start(startAtRef.current)
               }}
             >
               QAYTA
@@ -713,6 +734,33 @@ export default function App() {
               <b>{best}</b>
             </div>
           </div>
+          {unlocked >= 1000 && (
+            <div className="checks">
+              <button
+                className={startAt === 0 ? 'check is-on' : 'check'}
+                type="button"
+                onPointerDown={(event) => {
+                  event.stopPropagation()
+                  setStartAt(0)
+                }}
+              >
+                0
+              </button>
+              {Array.from({ length: Math.floor(unlocked / 1000) }, (_, index) => (index + 1) * 1000).map((mark) => (
+                <button
+                  key={mark}
+                  className={startAt === mark ? 'check is-on' : 'check'}
+                  type="button"
+                  onPointerDown={(event) => {
+                    event.stopPropagation()
+                    setStartAt(mark)
+                  }}
+                >
+                  {mark}
+                </button>
+              ))}
+            </div>
+          )}
           <button
             className="start"
             type="button"

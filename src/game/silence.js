@@ -60,6 +60,13 @@ export function createSilence() {
   }
 }
 
+export function seedSilence(silence, shown) {
+  resetSilence(silence)
+  if (shown >= 1000) silence.m1 = 1
+  if (shown >= 2000) silence.m2 = 1
+  if (shown >= 3000) silence.m3 = 1
+}
+
 export function resetSilence(silence) {
   silence.on = 0
   silence.left = 0

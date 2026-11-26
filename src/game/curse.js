@@ -18,6 +18,17 @@ export function createCurse() {
   }
 }
 
+export function seedCurse(curse, raw) {
+  resetCurse(curse)
+  if (raw < 1000) return
+  curse.on = 1
+  curse.anchor = raw
+  curse.mul = 1.35
+  curse.rush = 1.12
+  curse.press = 0.9
+  curse.watch = 0.6
+}
+
 export function resetCurse(curse) {
   curse.on = 0
   curse.anchor = 0

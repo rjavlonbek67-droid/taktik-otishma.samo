@@ -38,6 +38,20 @@ function plantSnap(state) {
   slot.flash = 0
 }
 
+export function seedAbyss(state, score) {
+  const stage = stageOf(score)
+  state.abyssStage = stage
+  state.abyssMul = MUL[stage]
+  state.abyssPush = PUSH[stage]
+  state.abyssCold = COLD[stage]
+  state.abyssWatch = WATCH[stage]
+  state.abyssGlitch = GLINT[stage]
+  state.mirage = 0
+  state.abyssSnap = 0
+  state.abyssPing = 0
+  state.abyssCd = 9
+}
+
 export function stepAbyss(state, dt, callbacks) {
   const score = state.z * 0.45 + state.bonus
   const stage = stageOf(score)

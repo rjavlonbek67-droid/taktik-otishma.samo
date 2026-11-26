@@ -38,6 +38,7 @@ import { applyCurse, createCurse, curseBoon, curseScore, resetCurse, stepCurse }
 import { createScale, resetScale, restScaleAudio, scaleChime, stepScale, takeScalePing } from './scale.js'
 import { createMind, noteHabit, resetMind, restMindAudio, stepMind, takeMindPing } from './mind.js'
 import { breakSilence, createSilence, resetSilence, restSilenceAudio, stepSilence, takeSilence } from './silence.js'
+import { applySpawn } from './checkpoint.js'
 
 const HALF_THIN = 0.26
 const HALF_WIDE = 0.85
@@ -874,7 +875,7 @@ function liveCamera(state, dt, focusing, v, signals) {
   v.rolled.copy(v.up).multiplyScalar(Math.cos(roll)).addScaledVector(v.right, Math.sin(roll))
 }
 
-function Scene({ active, runId, input, styleRef, callbacks }) {
+function Scene({ active, runId, input, styleRef, callbacks, spawnRef }) {
   const tunnel = useMemo(() => {
     const { railGeo, ringGeo } = buildTunnelGeometry()
     const line = (color) => new THREE.LineBasicMaterial({
@@ -1032,6 +1033,7 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
 
     if (active && state.runId !== runId) {
       resetRuntime(state)
+      applySpawn(state, spawnRef?.current || 0)
       state.runId = runId
       const specks = speckGeo.attributes.position.array
       for (let i = 0; i < SPECKS; i += 1) {
@@ -2305,7 +2307,7 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
   )
 }
 
-function WorldCanvas({ active, runId, input, styleRef, onScore, onCrash, onNearMiss, onGlitch, onEcho, onLoan, onDread, onTelemetry, onFps, onAbyss, onTremor, onCurse, onScale, onMind, onSilence }) {
+function WorldCanvas({ active, runId, input, styleRef, spawnRef, onScore, onCrash, onNearMiss, onGlitch, onEcho, onLoan, onDread, onTelemetry, onFps, onAbyss, onTremor, onCurse, onScale, onMind, onSilence }) {
   const callbacks = useRef({ onScore, onCrash, onNearMiss, onGlitch, onEcho, onLoan, onDread, onTelemetry, onFps, onAbyss, onTremor, onCurse, onScale, onMind, onSilence })
   callbacks.current.onScore = onScore
   callbacks.current.onCrash = onCrash
@@ -2339,7 +2341,7 @@ function WorldCanvas({ active, runId, input, styleRef, onScore, onCrash, onNearM
         gl.setClearColor(0x000000, 1)
       }}
     >
-      <Scene active={active} runId={runId} input={input} styleRef={styleRef} callbacks={callbacks} />
+      <Scene active={active} runId={runId} input={input} styleRef={styleRef} callbacks={callbacks} spawnRef={spawnRef} />
     </Canvas>
   )
 }

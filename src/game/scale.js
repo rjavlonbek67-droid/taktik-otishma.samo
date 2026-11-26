@@ -40,6 +40,16 @@ export function createScale() {
   }
 }
 
+export function seedScale(scale, shown) {
+  resetScale(scale)
+  const over = shown > 1000 ? shown - 1000 : 0
+  scale.ease = over > 0 ? 1 - Math.exp(-over / TAU) : 0
+  scale.felt = shown <= 1000 ? shown : 1000 + 64 * scale.ease
+  scale.gap = scale.ease * 0.75
+  scale.ceil = BASE_CEIL * (1 + scale.ease * 0.06)
+  if (shown >= 1500) scale.mark = 1000 + Math.floor((shown - 1000) / 500) * 500
+}
+
 export function resetScale(scale) {
   scale.mark = 1000
   scale.ping = 0

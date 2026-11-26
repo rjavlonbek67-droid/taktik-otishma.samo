@@ -1032,9 +1032,41 @@ html.is-read #root,
 
 .menu .stats,
 .menu .start,
+.menu .checks,
 .menu .blog-link {
   position: relative;
   z-index: 1;
+}
+
+.checks {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  width: min(22rem, 100%);
+  pointer-events: auto;
+}
+
+.check {
+  appearance: none;
+  border: 1px solid rgba(0, 243, 255, 0.45);
+  background: rgba(0, 0, 0, 0.62);
+  color: rgba(236, 248, 255, 0.9);
+  font: inherit;
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
+  font-variant-numeric: tabular-nums;
+  padding: 0.42rem 0.62rem;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.check.is-on {
+  color: #f4feff;
+  border-color: rgba(0, 243, 255, 0.92);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 43, 214, 0.28),
+    0 0 14px rgba(0, 243, 255, 0.22);
 }
 
 .screen-fx {
