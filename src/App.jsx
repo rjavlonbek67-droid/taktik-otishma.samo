@@ -53,6 +53,7 @@ export default function App() {
   const [launch, setLaunch] = useState(false)
   const [sigilStrike, setSigilStrike] = useState(0)
   const [silence, setSilence] = useState(false)
+  const [scaleMark, setScaleMark] = useState(null)
   const launchTimer = useRef(0)
   const scoreEdge = useRef(0)
   const phaseRef = useRef(phase)
