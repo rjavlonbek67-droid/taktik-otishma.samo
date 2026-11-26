@@ -15,6 +15,15 @@ export default function Blog({ onClose }) {
   const scroller = useRef(null)
   const stamp = useRef(0)
   const course = COURSES.find((item) => item.id === openId) || null
+  const reveal = (lessonId) => {
+    const known = lessonId === 'archive' || COURSES.some((item) => item.id === lessonId)
+    if (!known) return
+    const now = performance.now()
+    if (now - stamp.current < 350) return
+    stamp.current = now
+    setSelectedId(lessonId)
+    setOpenId(lessonId)
+  }
   const back = (event) => {
     event.preventDefault()
     event.stopPropagation()
@@ -24,15 +33,42 @@ export default function Blog({ onClose }) {
   const openLesson = (event, id) => {
     event.preventDefault()
     event.stopPropagation()
-    const lessonId = id || event.currentTarget?.getAttribute?.('data-lesson') || selectedId
-    const known = lessonId === 'archive' || COURSES.some((item) => item.id === lessonId)
-    if (!known) return
-    const now = performance.now()
-    if (now - stamp.current < 350) return
-    stamp.current = now
-    setSelectedId(lessonId)
-    setOpenId(lessonId)
+    reveal(id || event.currentTarget?.getAttribute?.('data-lesson') || selectedId)
   }
+
+  useEffect(() => {
+    const node = scroller.current
+    if (!node) return undefined
+    let armed = null
+    const start = (event) => {
+      const button = event.target?.closest?.('button[data-lesson]')
+      if (!button || !node.contains(button)) return
+      armed = {
+        id: button.getAttribute('data-lesson'),
+        x: event.clientX,
+        y: event.clientY,
+      }
+      event.stopPropagation()
+    }
+    const end = (event) => {
+      const origin = armed
+      armed = null
+      if (!origin?.id) return
+      if (Math.abs(event.clientX - origin.x) > 22 || Math.abs(event.clientY - origin.y) > 22) return
+      reveal(origin.id)
+    }
+    const cancel = () => {
+      armed = null
+    }
+    node.addEventListener('pointerdown', start, true)
+    node.addEventListener('pointerup', end, true)
+    node.addEventListener('pointercancel', cancel, true)
+    return () => {
+      node.removeEventListener('pointerdown', start, true)
+      node.removeEventListener('pointerup', end, true)
+      node.removeEventListener('pointercancel', cancel, true)
+    }
+  }, [])
 
   useEffect(() => {
     if (scroller.current) scroller.current.scrollTop = 0
@@ -226,11 +262,11 @@ export default function Blog({ onClose }) {
           <p className="blog-kicker">DARS {course.index} · {course.tag}</p>
           <h1>{course.title}</h1>
           <p className="blog-lead">{course.lead}</p>
-          {course.sections.map((section) => (
+          {(course.sections || []).map((section) => (
             <section key={section.title}>
               <p className="blog-code">{section.code}</p>
               <h2>{section.title}</h2>
-              {section.paragraphs.map((paragraph) => (
+              {(section.paragraphs || []).map((paragraph) => (
                 <p key={paragraph}>{paragraph}</p>
               ))}
             </section>
@@ -238,7 +274,7 @@ export default function Blog({ onClose }) {
           <section>
             <p className="blog-code">&gt; AMALIYOT</p>
             <h2>Vazifalar</h2>
-            {course.tasks.map((task) => (
+            {(course.tasks || []).map((task) => (
               <div className="blog-task" key={task.title}>
                 <strong>{task.title}</strong>
                 <p>{task.body}</p>
@@ -248,7 +284,7 @@ export default function Blog({ onClose }) {
           <aside className="blog-warn">
             <span>KURS</span>
             <span>{course.index}</span>
-            {course.warn.map((line) => (
+            {(course.warn || []).map((line) => (
               <p key={line}>{line}</p>
             ))}
           </aside>
