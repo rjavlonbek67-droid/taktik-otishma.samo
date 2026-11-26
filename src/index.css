@@ -470,6 +470,18 @@ html.is-read #root,
   color: #f4feff;
 }
 
+.app.is-silence .hud,
+.app.is-silence .tele b,
+.app.is-silence .scale-mark,
+.app.is-silence .tremor-cue,
+.app.is-silence .curse-chip,
+.app.is-silence .near,
+.app.is-silence .abyss,
+.app.is-silence .note,
+.app.is-silence .ultra {
+  visibility: hidden;
+}
+
 .hud {
   position: absolute;
   top: calc(env(safe-area-inset-top) + 16px);

@@ -52,7 +52,7 @@ export default function App() {
   const [finale, setFinale] = useState(null)
   const [launch, setLaunch] = useState(false)
   const [sigilStrike, setSigilStrike] = useState(0)
-  const [scaleMark, setScaleMark] = useState(null)
+  const [silence, setSilence] = useState(false)
   const launchTimer = useRef(0)
   const scoreEdge = useRef(0)
   const phaseRef = useRef(phase)
@@ -156,6 +156,7 @@ export default function App() {
     setFinale(null)
     setScaleMark(null)
     window.clearTimeout(scaleTimer.current)
+    setSilence(false)
     setScore(0)
     scoreEdge.current = 0
     setMiss(null)
@@ -179,6 +180,7 @@ export default function App() {
 
   const onCrash = useCallback((finalScore, passed) => {
     clearHold()
+    setSilence(false)
     remember(finalScore)
     setDread(null)
     window.clearTimeout(crashTimer.current)
@@ -292,6 +294,19 @@ export default function App() {
 
   const onMind = useCallback((info) => {
     if (info.phase === 'band') showNote(`${info.at} SINOV`, 900)
+  }, [showNote])
+
+  const onSilence = useCallback((info) => {
+    if (info.phase === 'start') {
+      setSilence(true)
+      setSigilStrike((n) => n + 1)
+    } else if (info.phase === 'end') {
+      setSilence(false)
+      setSigilStrike((n) => n + 1)
+      showNote('TOZA', 800)
+    } else {
+      setSilence(false)
+    }
   }, [showNote])
 
   const onDread = useCallback((info) => {
@@ -536,7 +551,7 @@ export default function App() {
   return (
     <div
       ref={appRef}
-      className={`app${phase === 'play' ? ' is-play' : ''}${phase === 'blog' ? ' is-read' : ''}${focusUi ? ' is-focus' : ''}${loanPhase === 'slow' ? ' is-loan' : ''}${loanPhase === 'repay' ? ' is-repay' : ''}${dread === 'heart' ? ' is-heart' : ''}${dread === 'rewind' ? ' is-rewind' : ''}${dread === 'surge' ? ' is-surge' : ''}${abyss?.hot ? ' is-abyss' : ''}${cursed ? ' is-curse' : ''}`}
+      className={`app${phase === 'play' ? ' is-play' : ''}${phase === 'blog' ? ' is-read' : ''}${silence ? ' is-silence' : ''}${focusUi ? ' is-focus' : ''}${loanPhase === 'slow' ? ' is-loan' : ''}${loanPhase === 'repay' ? ' is-repay' : ''}${dread === 'heart' ? ' is-heart' : ''}${dread === 'rewind' ? ' is-rewind' : ''}${dread === 'surge' ? ' is-surge' : ''}${abyss?.hot ? ' is-abyss' : ''}${cursed ? ' is-curse' : ''}`}
       onContextMenu={(event) => event.preventDefault()}
     >
       <World
@@ -558,6 +573,7 @@ export default function App() {
         onCurse={onCurse}
         onScale={onScale}
         onMind={onMind}
+        onSilence={onSilence}
       />
 
       <button
@@ -580,7 +596,7 @@ export default function App() {
       {phase === 'play' && (
         <div className="sigil-play">
           <KonturSigil
-            mood={cursed ? 'curse' : dread === 'surge' ? 'surge' : score >= 900 || (score >= 470 && score < 540) ? 'near' : 'idle'}
+            mood={cursed ? 'curse' : dread === 'surge' ? 'surge' : (silence || score >= 900 || (score >= 470 && score < 540)) ? 'near' : 'idle'}
             strike={sigilStrike}
           />
         </div>
@@ -631,7 +647,7 @@ export default function App() {
             requestLoan()
           }}
         >
-          {loanLeft > 0 ? loanLeft.toFixed(0) : 'QARZ'}
+          {silence || loanLeft <= 0 ? 'QARZ' : loanLeft.toFixed(0)}
         </button>
       )}
       {phase === 'dead' && (
@@ -677,7 +693,7 @@ export default function App() {
         </div>
       )}
 
-      <div className="build">{LABEL}{fps > 0 ? ` · ${fps}` : ''}</div>
+      <div className="build">{LABEL}{!silence && fps > 0 ? ` · ${fps}` : ''}</div>
 
       {phase === 'menu' && (
         <div className="menu">

@@ -37,6 +37,7 @@ import { applyTremor, createTremor, resetTremor, stepTremor } from './tremor.js'
 import { applyCurse, createCurse, curseBoon, curseScore, resetCurse, stepCurse } from './curse.js'
 import { createScale, resetScale, restScaleAudio, scaleChime, stepScale, takeScalePing } from './scale.js'
 import { createMind, noteHabit, resetMind, restMindAudio, stepMind, takeMindPing } from './mind.js'
+import { breakSilence, createSilence, resetSilence, restSilenceAudio, stepSilence, takeSilence } from './silence.js'
 
 const HALF_THIN = 0.26
 const HALF_WIDE = 0.85
@@ -263,6 +264,7 @@ function createRuntime() {
     curse: createCurse(),
     scale: createScale(),
     mind: createMind(),
+    silence: createSilence(),
     lodApplied: -1,
   }
 }
@@ -354,6 +356,7 @@ function resetRuntime(state) {
   resetCurse(state.curse)
   resetScale(state.scale)
   resetMind(state.mind)
+  resetSilence(state.silence)
   for (const decoy of state.decoys) decoy.on = false
   state.gates.length = 0
   state.pulses.length = 0
@@ -1048,6 +1051,7 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
       restScaleAudio()
       restTapAudio()
       restMindAudio()
+      restSilenceAudio()
       const idle = state.time
       if (tunnelRef.current) tunnelRef.current.position.z = -((idle * 5) % 8)
       placeBall(0, Math.sin(idle * 0.35) * 0.04, 0, v.pos)
@@ -1299,6 +1303,7 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
         state.recoil = 1
         state.fovKick = Math.max(state.fovKick, state.lod ? 0.04 : 0.09)
       }
+      if (breakSilence(state.silence)) callbacks.current.onSilence?.({ phase: 'break' })
       const crashedScore = Math.floor(curseScore(state.curse, state.z * 0.45 + state.bonus))
       if (state.loan !== 'idle') {
         debtStrikeSound()
@@ -1311,6 +1316,7 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
       restScaleAudio()
       restTapAudio()
       restMindAudio()
+      restSilenceAudio()
       vibrate(48)
       callbacks.current.onCrash(crashedScore, state.curse.on ? 1 : 0)
       return
@@ -1472,8 +1478,17 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
       tripGlitch(state, callbacks)
       state.curse.banner = 1
     }
-    const total = Math.floor(curseScore(state.curse, raw))
-    stepScale(state.scale, total, raw, dt, state.lod)
+    let total = Math.floor(curseScore(state.curse, raw))
+    stepSilence(state, total, dt)
+    if (state.silence.paid) {
+      state.silence.paid = 0
+      total = Math.floor(curseScore(state.curse, state.z * 0.45 + state.bonus))
+    }
+    const silencePing = takeSilence(state.silence)
+    if (silencePing === 1) callbacks.current.onSilence?.({ phase: 'start' })
+    else if (silencePing === 2) callbacks.current.onSilence?.({ phase: 'end' })
+    else if (silencePing === 3) callbacks.current.onSilence?.({ phase: 'break' })
+    stepScale(state.scale, total, state.z * 0.45 + state.bonus, dt, state.lod)
     stepMind(state, total, dt)
     const scaleAt = takeScalePing(state.scale)
     if (scaleAt) {
@@ -1715,6 +1730,11 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
       const trial = state.mind.press * (state.lod ? 0.1 : 0.26)
       tunnel.railLines.opacity = Math.min(1, tunnel.railLines.opacity + trial)
       tunnel.ringLines.opacity = Math.min(1, tunnel.ringLines.opacity + trial * 0.55)
+    }
+    if (state.silence.flash > 0.02) {
+      const mark = state.silence.flash * (state.lod ? 0.1 : 0.24)
+      tunnel.railLines.opacity = Math.min(1, tunnel.railLines.opacity + mark)
+      tunnel.ringLines.opacity = Math.min(1, tunnel.ringLines.opacity + mark * 0.5)
     }
     if (state.heart > 0 && state.heartFlash < 0.04) {
       tunnel.rails.uniforms.uGain.value *= 0.16
@@ -2285,8 +2305,8 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
   )
 }
 
-function WorldCanvas({ active, runId, input, styleRef, onScore, onCrash, onNearMiss, onGlitch, onEcho, onLoan, onDread, onTelemetry, onFps, onAbyss, onTremor, onCurse, onScale, onMind }) {
-  const callbacks = useRef({ onScore, onCrash, onNearMiss, onGlitch, onEcho, onLoan, onDread, onTelemetry, onFps, onAbyss, onTremor, onCurse, onScale, onMind })
+function WorldCanvas({ active, runId, input, styleRef, onScore, onCrash, onNearMiss, onGlitch, onEcho, onLoan, onDread, onTelemetry, onFps, onAbyss, onTremor, onCurse, onScale, onMind, onSilence }) {
+  const callbacks = useRef({ onScore, onCrash, onNearMiss, onGlitch, onEcho, onLoan, onDread, onTelemetry, onFps, onAbyss, onTremor, onCurse, onScale, onMind, onSilence })
   callbacks.current.onScore = onScore
   callbacks.current.onCrash = onCrash
   callbacks.current.onNearMiss = onNearMiss
@@ -2301,6 +2321,7 @@ function WorldCanvas({ active, runId, input, styleRef, onScore, onCrash, onNearM
   callbacks.current.onCurse = onCurse
   callbacks.current.onScale = onScale
   callbacks.current.onMind = onMind
+  callbacks.current.onSilence = onSilence
 
   return (
     <Canvas

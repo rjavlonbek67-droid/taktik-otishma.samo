@@ -1,3 +1,3 @@
-export const BUILD = 'v3.10-mind-trap'
-export const CACHE = 'oyin-sbp-v3.10-mind-trap'
-export const LABEL = 'SBP v3.10 • MIND-TRAP'
+export const BUILD = 'v3.11-silence-trial'
+export const CACHE = 'oyin-sbp-v3.11-silence-trial'
+export const LABEL = 'SBP v3.11 • SILENCE-TRIAL'
