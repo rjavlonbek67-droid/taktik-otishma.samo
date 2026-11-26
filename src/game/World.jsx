@@ -219,9 +219,10 @@ function createRuntime() {
       id: 0,
       age: 0,
       radius: 0,
+      sharp: 0,
       pos: new THREE.Vector3(),
     })),
-    wavePool: Array.from({ length: 3 }, () => ({ id: 0, z: 0, life: 0 })),
+    wavePool: Array.from({ length: 3 }, () => ({ id: 0, z: 0, life: 0, sharp: 0 })),
     echoPool: Array.from({ length: 8 }, () => ({ z: 0, wall: 0, synced: false })),
     fpsSmooth: 60,
     fpsReport: 0.4,
@@ -369,17 +370,19 @@ function claim(list, pool) {
   return item
 }
 
-function emitPulse(state, origin) {
+function emitPulse(state, origin, sharp = 0) {
   const pulse = claim(state.pulses, state.pulsePool)
   pulse.id = state.pid
   pulse.age = 0
   pulse.radius = 0.45
+  pulse.sharp = sharp ? 1 : 0
   pulse.pos.copy(origin)
   state.pid += 1
   const wave = claim(state.waves, state.wavePool)
   wave.id = state.wid
   wave.z = origin.z
   wave.life = 0
+  wave.sharp = sharp ? 1 : 0
   state.wid += 1
   maybeDecoy(state)
 }
@@ -451,7 +454,7 @@ function playLoanEvent(state, callbacks, origin) {
     state.suspicion = 1
     state.dutch = 1
     state.glitch = 1
-    emitPulse(state, origin)
+    emitPulse(state, origin, 1)
     burstSparks(state, origin, 22)
     tripGlitch(state, callbacks)
   } else if (state.loanEvent === 'clear') {
@@ -459,7 +462,7 @@ function playLoanEvent(state, callbacks, origin) {
     state.suspicion = 0.15
     state.peekKick = 0
     state.glitch = Math.max(state.glitch, 0.45)
-    emitPulse(state, origin)
+    emitPulse(state, origin, 1)
     burstSparks(state, origin, 14)
     debtClearSound()
   } else if (state.loanEvent === 'fail') {
@@ -1108,7 +1111,7 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
       state.suspicion = 0
       state.flinch = 1
       state.fovKick = 0.032
-      state.arrow = 0.09
+      state.arrow = 0.16
       state.arrowSign = sign
       if (Math.abs(sign) >= 2) {
         state.rule = 1
@@ -1132,8 +1135,6 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
       placeBall(state.z, state.angle, state.targetWall, v.pos)
       rememberEcho(state)
       emitPulse(state, v.pos)
-      burstSparks(state, v.pos, Math.abs(sign) >= 2 ? 16 : 10)
-      tripGlitch(state, callbacks)
       clickShiftSound()
       gravitySound(sign)
       pulseSound()
@@ -1238,24 +1239,24 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
     playLoanEvent(state, callbacks, v.pos)
     if (state.surgePulse) {
       state.surgePulse = 0
-      emitPulse(state, v.pos)
+      emitPulse(state, v.pos, 1)
       burstSparks(state, v.pos, 14)
       tripGlitch(state, callbacks)
     }
     if (state.surgeEvent === 'clear') {
-      emitPulse(state, v.pos)
+      emitPulse(state, v.pos, 1)
       burstSparks(state, v.pos, 10)
       state.surgeEvent = null
     }
     if (state.abyssSnap) {
       state.abyssSnap = 0
-      emitPulse(state, v.pos)
+      emitPulse(state, v.pos, 1)
       burstSparks(state, v.pos, state.lod ? 6 : 12)
       tripGlitch(state, callbacks)
     }
     if (state.abyssPing) {
       state.abyssPing = 0
-      emitPulse(state, v.pos)
+      emitPulse(state, v.pos, state.abyssStage >= 6 ? 1 : 0)
     }
     let hit = false
     const sweepLo = Math.min(state.prevZ, state.z)
@@ -1311,7 +1312,7 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
         burstSparks(state, v.pos, state.loan === 'idle' ? 8 : 18)
         if (state.loan !== 'idle') {
           state.loanClean = false
-          emitPulse(state, v.pos)
+          emitPulse(state, v.pos, 1)
           debtStrikeSound()
           callbacks.current.onLoan?.({ phase: 'strike' })
         }
@@ -1386,7 +1387,7 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
       }
       bestSlot.flash = 1
       state.hitStop = 0.03
-      emitPulse(state, v.pos)
+      emitPulse(state, v.pos, 1)
       nearMissSound(bestMult)
       vibrate(18)
       burstSparks(state, v.pos, 8)
@@ -1398,7 +1399,7 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
       input.current.glitch = 0
       state.recoil = 1
       placeBall(state.z, state.angle, state.targetWall, v.pos)
-      emitPulse(state, v.pos)
+      emitPulse(state, v.pos, 1)
       burstSparks(state, v.pos, 14)
       pulseSound()
       tripGlitch(state, callbacks)
@@ -1442,7 +1443,7 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
     if (state.curse.sting) {
       state.curse.sting = 0
       curseSting()
-      emitPulse(state, v.pos)
+      emitPulse(state, v.pos, 1)
       burstSparks(state, v.pos, state.lod ? 5 : 12)
       tripGlitch(state, callbacks)
       state.curse.banner = 1
@@ -1463,14 +1464,14 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
     if (tremor.pulse === 1) tremorWarn()
     else if (tremor.pulse === 2) {
       tremorHit()
-      emitPulse(state, v.pos)
+      emitPulse(state, v.pos, 1)
       burstSparks(state, v.pos, state.lod ? 6 : 12)
       tripGlitch(state, callbacks)
       callbacks.current.onTremor?.({ phase: 'wall' })
     } else if (tremor.pulse === 3) tremorHeart()
     else if (tremor.pulse === 4) {
       tremorBreach()
-      emitPulse(state, v.pos)
+      emitPulse(state, v.pos, 1)
       burstSparks(state, v.pos, state.lod ? 8 : 16)
       tripGlitch(state, callbacks)
       callbacks.current.onTremor?.({ phase: 'breach' })
@@ -1678,10 +1679,6 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
     tunnel.rings.uniforms.uGain.value = (1.15 * (1 - mix * 0.7) + flash * 0.7) * moodGain
     tunnel.railLines.opacity = Math.min(1, (mix * 0.92 + flash * 0.9) * moodGain + (1 - mix) * state.mood * 0.28)
     tunnel.ringLines.opacity = Math.min(1, (mix * 0.8 + flash * 0.75) * moodGain + (1 - mix) * state.mood * 0.2)
-    if (state.arrow > 0.02) {
-      tunnel.railLines.opacity = Math.min(1, tunnel.railLines.opacity + 0.46)
-      tunnel.ringLines.opacity = Math.min(1, tunnel.ringLines.opacity + 0.3)
-    }
     if (state.tremor.line > 0.04) {
       const tense = state.tremor.line * (state.lod ? 0.18 : 0.34)
       tunnel.railLines.opacity = Math.min(1, tunnel.railLines.opacity + tense)
@@ -1911,7 +1908,7 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
       const mesh = waveRefs.current[i]
       const wave = state.waves[state.waves.length - 1 - i]
       if (!mesh) continue
-      if (!wave) {
+      if (!wave || !wave.sharp) {
         mesh.visible = false
         continue
       }
@@ -1925,17 +1922,21 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
       const mesh = pulseRefs.current[i]
       const pulse = state.pulses[state.pulses.length - 1 - i]
       if (!mesh) continue
-      if (!pulse || pulse.age > 1.35) {
+      if (!pulse || (pulse.sharp ? pulse.age > 1.35 : pulse.age > 0.18)) {
         mesh.visible = false
         continue
       }
       mesh.visible = true
       mesh.position.copy(pulse.pos)
-      mesh.scale.setScalar(Math.max(0.001, pulse.radius))
-      const fade = Math.max(0, 1 - pulse.age / 1.35)
-      mesh.children.forEach((child, index) => {
-        if (child.material) child.material.opacity = fade * (index === 0 ? 0.55 : 0.8)
-      })
+      const quiet = !pulse.sharp
+      mesh.scale.setScalar(quiet ? 0.42 : Math.max(0.001, pulse.radius))
+      const fade = quiet ? Math.max(0, 1 - pulse.age / 0.18) : Math.max(0, 1 - pulse.age / 1.35)
+      const kids = mesh.children
+      for (let c = 0; c < kids.length; c += 1) {
+        const child = kids[c]
+        child.visible = quiet ? c === 1 : true
+        if (child.material) child.material.opacity = fade * (quiet ? 0.9 : (c === 0 ? 0.55 : 0.8))
+      }
     }
 
     if (arrowRef.current) {
@@ -1961,7 +1962,7 @@ function Scene({ active, runId, input, styleRef, callbacks }) {
         arr[7] = oy - ty * 0.26 - py * 0.16
         arr[8] = oz
         arrowGeo.attributes.position.needsUpdate = true
-        arrowRef.current.material.opacity = Math.min(1, state.arrow / 0.09)
+        arrowRef.current.material.opacity = Math.min(1, state.arrow / 0.16)
       }
     }
     if (witnessRef.current) {
